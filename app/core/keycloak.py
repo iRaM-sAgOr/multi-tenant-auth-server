@@ -33,6 +33,8 @@ MULTI-TENANT FLOW:
 import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+import httpx
+import asyncio
 from keycloak import KeycloakOpenID, KeycloakAdmin  # type: ignore
 from keycloak.exceptions import KeycloakError  # type: ignore
 from jose import jwt, JWTError
@@ -42,6 +44,97 @@ from app.core.config import settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+async def check_keycloak_health(server_url: str, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Check Keycloak server health and availability
+
+    Args:
+        server_url: Keycloak server URL
+        timeout: Request timeout in seconds
+
+    Returns:
+        Dict containing health status and details
+    """
+    health_status = {
+        "keycloak_available": False,
+        "server_url": server_url,
+        "error": None,
+        "response_time_ms": None
+    }
+
+    try:
+        # Remove trailing slash and add health endpoint
+        base_url = server_url.rstrip('/')
+        health_url = f"{base_url}/health"
+
+        start_time = asyncio.get_event_loop().time()
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(health_url)
+
+        end_time = asyncio.get_event_loop().time()
+        response_time = int((end_time - start_time) * 1000)
+
+        health_status["response_time_ms"] = response_time
+
+        if response.status_code == 200:
+            health_status["keycloak_available"] = True
+            logger.info(
+                f"✅ Keycloak server is healthy - {server_url} (Response time: {response_time}ms)")
+        else:
+            health_status["error"] = f"HTTP {response.status_code}: {response.text}"
+            logger.error(
+                f"❌ Keycloak health check failed - {server_url}: {health_status['error']}")
+
+    except httpx.TimeoutException:
+        health_status["error"] = f"Connection timeout after {timeout}s"
+        logger.error(f"❌ Keycloak connection timeout - {server_url}")
+    except httpx.ConnectError:
+        health_status["error"] = "Connection refused - server may be down"
+        logger.error(f"❌ Keycloak connection refused - {server_url}")
+    except Exception as e:
+        health_status["error"] = str(e)
+        logger.error(
+            f"❌ Keycloak health check error - {server_url}: {str(e)}")
+
+    return health_status
+
+
+async def verify_keycloak_connectivity(server_url: str, retry_count: int = 3, retry_delay: int = 5) -> bool:
+    """
+    Verify Keycloak connectivity with retries
+
+    Args:
+        server_url: Keycloak server URL
+        retry_count: Number of retry attempts
+        retry_delay: Delay between retries in seconds
+
+    Returns:
+        bool: True if Keycloak is accessible, False otherwise
+    """
+    logger.info(f"🔍 Verifying Keycloak connectivity: {server_url}")
+
+    for attempt in range(1, retry_count + 1):
+        logger.info(
+            f"🔄 Keycloak connectivity check - Attempt {attempt}/{retry_count}")
+
+        health_status = await check_keycloak_health(server_url)
+
+        if health_status["keycloak_available"]:
+            logger.info("✅ Keycloak server connectivity verified successfully")
+            return True
+
+        if attempt < retry_count:
+            logger.warning(
+                f"⏳ Keycloak connectivity failed, retrying in {retry_delay}s... (Attempt {attempt}/{retry_count})")
+            await asyncio.sleep(retry_delay)
+        else:
+            logger.error(
+                f"❌ Keycloak server is not accessible after {retry_count} attempts: {health_status['error']}")
+
+    return False
 
 
 @dataclass

@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     # Settings for connecting to Keycloak server
     # Keycloak server base URL (default for development)
     keycloak_server_url: str = "http://localhost:8080"
+    
+    # Startup health check configuration
+    # Whether to verify Keycloak connectivity during startup
+    keycloak_startup_check_enabled: bool = True
+    # Number of retry attempts for Keycloak connectivity check
+    keycloak_startup_check_retries: int = 3
+    # Delay between retry attempts in seconds
+    keycloak_startup_check_retry_delay: int = 5
+    # Whether to exit application if Keycloak is unavailable (production behavior)
+    keycloak_startup_check_exit_on_failure: bool = False
 
     # Admin access configuration (optional fallback for legacy admin operations)
     # Admin username for fallback (optional)

@@ -180,6 +180,10 @@ class EnhancedLogger:
         """Log error message with context"""
         self._log_with_context("ERROR", message, **kwargs)
 
+    def critical(self, message: str, **kwargs):
+        """Log critical message with context"""
+        self._log_with_context("CRITICAL", message, **kwargs)
+
     def debug(self, message: str, **kwargs):
         """Log debug message with context"""
         self._log_with_context("DEBUG", message, **kwargs)

@@ -6,11 +6,13 @@ It handles application initialization, middleware setup, route registration, and
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import settings
 from app.core.logging import setup_logging, get_structured_logger
+from app.core.keycloak import verify_keycloak_connectivity
 from app.routes import auth_router, health_router, info_router, console_router
 from app.exceptions import internal_server_error_handler
 from app.middleware import setup_security_middleware
@@ -31,11 +33,49 @@ async def lifespan(app: FastAPI):
         environment=settings.environment,
         debug=settings.debug
     )
-    logger.info(
-        "📡 Keycloak server configured",
-        keycloak_server=settings.keycloak_server_url,
-        service="multi-tenant-auth"
-    )
+    
+    # Verify Keycloak connectivity during startup (if enabled)
+    if settings.keycloak_startup_check_enabled:
+        logger.info(
+            "🔍 Checking Keycloak server connectivity...",
+            keycloak_server=settings.keycloak_server_url,
+            service="multi-tenant-auth"
+        )
+        
+        keycloak_healthy = await verify_keycloak_connectivity(
+            settings.keycloak_server_url,
+            retry_count=settings.keycloak_startup_check_retries,
+            retry_delay=settings.keycloak_startup_check_retry_delay
+        )
+        
+        if not keycloak_healthy:
+            logger.critical(
+                "💥 STARTUP FAILED: Keycloak server is not accessible. Application cannot start without identity provider.",
+                keycloak_server=settings.keycloak_server_url,
+                service="multi-tenant-auth"
+            )
+            
+            # Determine whether to exit based on configuration
+            should_exit = settings.keycloak_startup_check_exit_on_failure or not settings.debug
+            
+            if should_exit:
+                logger.critical("🛑 Exiting application due to Keycloak connectivity failure")
+                sys.exit(1)
+            else:
+                logger.warning("⚠️  Continuing despite Keycloak connectivity issues (startup check configured to allow)")
+        else:
+            logger.info(
+                "📡 Keycloak server connectivity verified",
+                keycloak_server=settings.keycloak_server_url,
+                service="multi-tenant-auth"
+            )
+    else:
+        logger.info(
+            "⏭️  Keycloak startup connectivity check is disabled",
+            keycloak_server=settings.keycloak_server_url,
+            service="multi-tenant-auth"
+        )
+    
     logger.info(
         "✅ Multi-tenant client initialized successfully",
         service="multi-tenant-auth"
