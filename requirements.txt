@@ -1,1 +1,27 @@
-fastapi[all]
+# FastAPI Keycloak Multi-Tenant Authentication Service - Production Dependencies
+# Perfect requirements file for multi-tenant authentication microservice
+
+# === CORE WEB FRAMEWORK ===
+fastapi[standard]                    # Modern web framework with automatic API docs
+
+# === KEYCLOAK AUTHENTICATION ===
+python-keycloak==5.7.0              # Latest Keycloak client with bug fixes
+python-jose[cryptography]==3.3.0    # JWT token handling
+cryptography==43.0.3                # Latest crypto library
+
+# === CONFIGURATION ===
+pydantic==2.10.4                    # Data validation and settings
+pydantic-settings==2.8.0            # Environment variable management
+python-dotenv==1.0.1                # .env file support
+
+# === LOGGING ===
+structlog==24.4.0                   # Structured logging for better observability
+colorama==0.4.6                     # Colored console output
+
+# === OPTIONAL: DEVELOPMENT TOOLS ===
+# Uncomment for development environment
+# pytest==7.4.3                     # Testing framework
+# pytest-asyncio==0.21.1            # Async testing support
+# black==23.11.0                    # Code formatting
+# isort==5.12.0                     # Import sorting
+# flake8==6.1.0                     # Code linting

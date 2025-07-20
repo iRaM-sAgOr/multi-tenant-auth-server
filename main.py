@@ -1,14 +1,35 @@
-from typing import Optional
+"""
+Multi-Tenant FastAPI Authentication Service - Main Entry Point
 
-from fastapi import FastAPI
+REFACTORED ARCHITECTURE:
+This main.py file now serves as the primary entry point and imports the 
+modularized application from app.py. The code has been split into:
 
-app = FastAPI()
+MODULES:
+- app/models/ - Pydantic request/response models
+- app/routes/ - API endpoint handlers organized by domain
+- app/dependencies.py - FastAPI dependency functions
+- app/exceptions.py - Global exception handlers
+- app/app.py - Application factory and configuration
+- app/core/ - Core business logic (config, keycloak client)
 
+BENEFITS:
+- Separation of concerns
+- Better code organization
+- Easier testing and maintenance
+- Cleaner imports and dependencies
+- Reusable components
+"""
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+from server import app_server
+from app.core.config import settings
 
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Optional[str] = None):
-    return {"item_id": item_id, "q": q}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "server:app_server",  # Updated to point to the app factory
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        log_level="info"
+    )
