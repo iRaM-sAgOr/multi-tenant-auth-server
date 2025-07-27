@@ -1,0 +1,24 @@
+# Add Docker-related files to .gitignore
+
+# Docker environment files
+.env.docker.local
+.env.production
+
+# Docker volumes and data
+postgres-data/
+keycloak-data/
+
+# SSL certificates (should be managed separately)
+ssl/*.key
+ssl/*.crt
+ssl/*.pem
+
+# Docker build context
+.dockerignore
+
+# Nginx logs
+nginx-logs/
+
+# Database dumps
+*.sql
+*.dump

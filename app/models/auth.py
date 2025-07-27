@@ -46,6 +46,48 @@ class AuthUrlRequest(BaseModel):
     state: Optional[str] = None
 
 
+class CreateRealmRequest(BaseModel):
+    """Request model for realm creation endpoint"""
+    realm_name: str
+    display_name: Optional[str] = None
+    enabled: bool = True
+    registration_allowed: bool = True
+    registration_email_as_username: bool = True
+    login_with_email_allowed: bool = True
+    duplicate_emails_allowed: bool = False
+    verify_email: bool = False
+    reset_password_allowed: bool = True
+    remember_me: bool = True
+    admin_username: str
+    admin_password: str
+
+
+class CreateClientRequest(BaseModel):
+    """Request model for client creation endpoint"""
+    client_id: str
+    client_name: Optional[str] = None
+    realm_name: str
+    redirect_uris: List[str] = ["http://localhost:3000/*"]
+    web_origins: List[str] = ["http://localhost:3000"]
+    admin_username: str
+    admin_password: str
+
+
+class RealmInfoRequest(BaseModel):
+    """Request model for realm information endpoint"""
+    realm_name: str
+    admin_username: str
+    admin_password: str
+
+
+class ClientInfoRequest(BaseModel):
+    """Request model for client information endpoint"""
+    realm_name: str
+    client_id: str
+    admin_username: str
+    admin_password: str
+
+
 class RegistrationStatusResponse(BaseModel):
     """Response model for registration status endpoint"""
     client_id: str

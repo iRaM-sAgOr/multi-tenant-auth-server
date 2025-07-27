@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # Settings for connecting to Keycloak server
     # Keycloak server base URL (default for development)
     keycloak_server_url: str = "http://localhost:8080"
-    
+
     # Startup health check configuration
     # Whether to verify Keycloak connectivity during startup
     keycloak_startup_check_enabled: bool = True
@@ -80,10 +80,12 @@ class Settings(BaseSettings):
     # Whether to exit application if Keycloak is unavailable (production behavior)
     keycloak_startup_check_exit_on_failure: bool = False
 
-    # Admin access configuration (optional fallback for legacy admin operations)
-    # Admin username for fallback (optional)
+    # Admin access configuration (legacy fallback - deprecated for security)
+    # SECURITY NOTE: Admin credentials are now passed per-request in admin APIs
+    # These settings are kept for backward compatibility with existing service account fallback
+    # Admin username for fallback (optional - deprecated)
     keycloak_admin_username: Optional[str] = None
-    # Admin password for fallback (optional)
+    # Admin password for fallback (optional - deprecated)
     keycloak_admin_password: Optional[str] = None
 
     # === SECURITY SETTINGS ===
@@ -109,7 +111,8 @@ class Settings(BaseSettings):
     # === TRUSTED HOSTS SETTINGS ===
     # Security middleware configuration for trusted hosts
     # List of allowed host headers (domains that can access the API)
-    trusted_hosts: List[str] = ["localhost", "127.0.0.1", "*"]  # Configure for production
+    trusted_hosts: List[str] = ["localhost",
+                                "127.0.0.1", "*"]  # Configure for production
 
     # === LOGGING CONFIGURATION ===
     # Logging behavior and output format settings

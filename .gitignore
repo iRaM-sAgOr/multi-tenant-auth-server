@@ -84,12 +84,21 @@ celerybeat-schedule
 
 # Environments
 .env
+.env.*
+.env.production.*
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Production environment files (keep these secure!)
+.env.production.render
+.env.production.aws
+.env.production.staging
+.env.production.client-*
+.env.local.render
 
 # Spyder project settings
 .spyderproject

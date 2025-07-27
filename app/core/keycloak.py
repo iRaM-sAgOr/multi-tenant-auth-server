@@ -65,13 +65,14 @@ async def check_keycloak_health(server_url: str, timeout: int = 30) -> Dict[str,
     }
 
     try:
-        # Remove trailing slash and add health endpoint
+        # Remove trailing slash and use root endpoint for basic connectivity check
         base_url = server_url.rstrip('/')
-        health_url = f"{base_url}/health"
+        # Use root endpoint - Keycloak typically returns 302 redirect when running
+        health_url = base_url
 
         start_time = asyncio.get_event_loop().time()
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             response = await client.get(health_url)
 
         end_time = asyncio.get_event_loop().time()
@@ -79,7 +80,8 @@ async def check_keycloak_health(server_url: str, timeout: int = 30) -> Dict[str,
 
         health_status["response_time_ms"] = response_time
 
-        if response.status_code == 200:
+        # Accept both 200 (OK) and 302 (redirect) as healthy responses
+        if response.status_code in [200, 302]:
             health_status["keycloak_available"] = True
             logger.info(
                 f"✅ Keycloak server is healthy - {server_url} (Response time: {response_time}ms)")
@@ -192,10 +194,11 @@ class MultiTenantKeycloakClient:
     def _get_openid_client(self, config: ClientConfig) -> KeycloakOpenID:
         """Get or create KeycloakOpenID client for the given configuration"""
         client_key = self._get_client_key(config)
+        server_url = config.server_url or settings.keycloak_server_url
 
         if client_key not in self._openid_clients:
             self._openid_clients[client_key] = KeycloakOpenID(
-                server_url=config.server_url,
+                server_url=server_url,
                 client_id=config.client_id,
                 realm_name=config.realm,
                 client_secret_key=config.client_secret
@@ -218,8 +221,7 @@ class MultiTenantKeycloakClient:
                         realm_name=config.realm,
                         client_id=config.client_id,
                         client_secret_key=config.client_secret,
-                        verify=True,
-                        auto_refresh_token=['get', 'put', 'post', 'delete']
+                        verify=True
                     )
                     logger.debug(
                         f"Created admin client using service account for {config.client_id}")
@@ -248,6 +250,50 @@ class MultiTenantKeycloakClient:
                 return None
 
         return self._admin_clients.get(client_key)
+
+    def _get_master_admin_client(self, admin_username: str, admin_password: str, server_url: Optional[str] = None) -> KeycloakAdmin:
+        """
+        Get KeycloakAdmin client using direct admin credentials for realm/client management.
+
+        This method is used for administrative operations that require master realm access
+        or when creating new realms/clients.
+
+        Args:
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password  
+            server_url: Keycloak server URL (optional, uses default if not provided)
+
+        Returns:
+            KeycloakAdmin client with master realm access
+
+        Raises:
+            HTTPException: If admin authentication fails
+        """
+        try:
+            admin_client = KeycloakAdmin(
+                server_url=server_url or settings.keycloak_server_url,
+                username=admin_username,
+                password=admin_password,
+                realm_name="master",  # Always use master realm for admin operations
+                verify=True
+            )
+
+            # Test the connection
+            admin_client.get_realm("master")
+
+            logger.debug("Created master admin client successfully")
+            return admin_client
+
+        except Exception as e:
+            logger.error(f"Failed to create master admin client: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "Admin authentication failed",
+                    "message": "Invalid admin credentials or Keycloak server unreachable",
+                    "keycloak_error": str(e)
+                }
+            )
 
     async def authenticate_user(self, username: str, password: str, client_config: ClientConfig) -> Dict[str, Any]:
         """
@@ -847,6 +893,271 @@ class MultiTenantKeycloakClient:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to generate authorization URL"
+            )
+
+    async def create_realm(self, realm_data: Dict[str, Any], admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Create a new realm in Keycloak.
+
+        Args:
+            realm_data: Dictionary containing realm configuration
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing created realm information
+
+        Raises:
+            HTTPException: If realm creation fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+
+            # Create the realm
+            realm_id = admin_client.create_realm(
+                payload=realm_data, skip_exists=False)
+
+            # Get the created realm info
+            realm_info = admin_client.get_realm(realm_data["realm"])
+
+            logger.info(f"Realm '{realm_data['realm']}' created successfully")
+
+            return {
+                "realm_id": realm_id,
+                "realm_info": realm_info,
+                "message": f"Realm '{realm_data['realm']}' created successfully"
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Realm creation failed: {error_str}")
+
+            if "409" in error_str or "exists" in error_str.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "Realm already exists",
+                        "message": f"Realm '{realm_data['realm']}' already exists",
+                        "keycloak_error": error_str
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Realm creation failed",
+                        "message": "Failed to create realm in Keycloak",
+                        "keycloak_error": error_str
+                    }
+                )
+
+    async def create_client(self, client_data: Dict[str, Any], realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Create a new client in a specific realm.
+
+        Args:
+            client_data: Dictionary containing client configuration
+            realm_name: Name of the realm where client should be created
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing created client information
+
+        Raises:
+            HTTPException: If client creation fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name  # Switch to target realm
+
+            # Create the client
+            client_id = admin_client.create_client(
+                payload=client_data, skip_exists=False)
+
+            # Get the created client info
+            clients = admin_client.get_clients()
+            client_info = next(
+                (c for c in clients if c["clientId"] == client_data["clientId"]), None)
+
+            # Get client secret if it's a confidential client
+            client_secret = None
+            if client_info and client_info.get("publicClient") is False:
+                client_secret = admin_client.get_client_secrets(
+                    client_info["id"])
+
+            logger.info(
+                f"Client '{client_data['clientId']}' created successfully in realm '{realm_name}'")
+
+            return {
+                "client_id": client_id,
+                "client_info": client_info,
+                "client_secret": client_secret,
+                "realm": realm_name,
+                "message": f"Client '{client_data['clientId']}' created successfully"
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Client creation failed: {error_str}")
+
+            if "409" in error_str or "exists" in error_str.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "Client already exists",
+                        "message": f"Client '{client_data['clientId']}' already exists in realm '{realm_name}'",
+                        "keycloak_error": error_str
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Client creation failed",
+                        "message": "Failed to create client in Keycloak",
+                        "keycloak_error": error_str,
+                        "realm": realm_name
+                    }
+                )
+
+    async def get_realm_info(self, realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a realm.
+
+        Args:
+            realm_name: Name of the realm
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing realm information
+
+        Raises:
+            HTTPException: If realm retrieval fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+
+            # Get realm info
+            realm_info = admin_client.get_realm(realm_name)
+
+            # Get realm clients
+            admin_client.connection.realm_name = realm_name
+            clients = admin_client.get_clients()
+
+            # Get realm users count
+            users_count = admin_client.users_count()
+
+            logger.info(f"Retrieved information for realm '{realm_name}'")
+
+            return {
+                "realm_info": realm_info,
+                "clients": clients,
+                "users_count": users_count,
+                "realm_name": realm_name
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to get realm info for '{realm_name}': {error_str}")
+
+            if "404" in error_str or "not found" in error_str.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "Realm not found",
+                        "message": f"Realm '{realm_name}' does not exist",
+                        "keycloak_error": error_str
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Failed to retrieve realm information",
+                        "message": f"Could not get information for realm '{realm_name}'",
+                        "keycloak_error": error_str
+                    }
+                )
+
+    async def get_client_info(self, realm_name: str, client_id: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a client in a specific realm.
+
+        Args:
+            realm_name: Name of the realm
+            client_id: Client ID to retrieve information for
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing client information
+
+        Raises:
+            HTTPException: If client retrieval fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name
+
+            # Get all clients and find the specific one
+            clients = admin_client.get_clients()
+            client_info = next(
+                (c for c in clients if c["clientId"] == client_id), None)
+
+            if not client_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "Client not found",
+                        "message": f"Client '{client_id}' not found in realm '{realm_name}'"
+                    }
+                )
+
+            # Get client secret if it's a confidential client
+            client_secret = None
+            if client_info.get("publicClient") is False:
+                try:
+                    client_secret = admin_client.get_client_secrets(
+                        client_info["id"])
+                except:
+                    logger.warning(
+                        f"Could not retrieve client secret for {client_id}")
+
+            # Get client roles
+            client_roles = admin_client.get_client_roles(client_info["id"])
+
+            logger.info(
+                f"Retrieved information for client '{client_id}' in realm '{realm_name}'")
+
+            return {
+                "client_info": client_info,
+                "client_secret": client_secret,
+                "client_roles": client_roles,
+                "realm_name": realm_name,
+                "client_id": client_id
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to get client info for '{client_id}' in realm '{realm_name}': {error_str}")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to retrieve client information",
+                    "message": f"Could not get information for client '{client_id}' in realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
             )
 
 
