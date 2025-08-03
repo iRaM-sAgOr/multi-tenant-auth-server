@@ -354,7 +354,7 @@ curl -X POST "https://your-auth-service.com/admin/realms" \
 
 #### 2. **Client Creation** - `POST /admin/clients`
 
-**Purpose**: Create clients for user authentication **WITHOUT admin privileges**
+**Purpose**: Create clients for user authentication with automatic service account role assignment
 
 ```bash
 curl -X POST "https://your-auth-service.com/admin/clients" \
@@ -368,21 +368,29 @@ curl -X POST "https://your-auth-service.com/admin/clients" \
       "https://your-app.com/silent-refresh"
     ],
     "web_origins": ["https://your-app.com"],
+    "service_accounts_enabled": true,
     "admin_username": "keycloak-admin",
     "admin_password": "secure-admin-password"
   }'
 ```
+
+**🆕 NEW FEATURE: Automatic Role Assignment**
+When `service_accounts_enabled: true`, the API now automatically:
+- ✅ Creates the client with service account enabled
+- ✅ Finds the service account user for the client
+- ✅ Assigns `manage-users` and `view-users` roles from `realm-management`
+- ✅ Returns role assignment status in the response
 
 **Client Security Configuration**:
 - ✅ Confidential client (requires client secret)
 - ✅ PKCE enabled for enhanced security
 - ✅ Authorization Code Flow enabled
 - ✅ Direct Grant Flow enabled
-- ❌ Service accounts disabled (no admin access)
+- ✅ Service accounts with automatic role assignment
 - ❌ Authorization services disabled
 - ❌ Implicit flow disabled
 
-**Response includes**:
+**Enhanced Response includes**:
 ```json
 {
   "client_secret": {
@@ -394,8 +402,21 @@ curl -X POST "https://your-auth-service.com/admin/clients" \
       "user_login": true,
       "user_registration": false,
       "admin_access": false,
-      "service_account": false
+      "service_account": true,
+      "automatic_role_assignment": true
+    },
+    "service_account_configuration": {
+      "enabled": true,
+      "automatic_role_assignment": true,
+      "assigned_roles": ["manage-users", "view-users"],
+      "role_assignment_status": "Success"
     }
+  },
+  "role_assignment": {
+    "service_account_enabled": true,
+    "roles_assigned": true,
+    "assigned_roles": ["manage-users", "view-users"],
+    "service_account_user_id": "uuid-of-service-account"
   }
 }
 ```
@@ -445,6 +466,74 @@ curl -X POST "https://your-auth-service.com/admin/clients/info" \
     "admin_username": "keycloak-admin",
     "admin_password": "secure-admin-password"
   }'
+```
+
+#### 5. **Realm Deletion** - `DELETE /admin/realms`
+
+**Purpose**: Permanently delete a Keycloak realm and ALL its data
+
+⚠️ **WARNING**: This operation is irreversible and will delete ALL data in the realm including users, clients, roles, and configurations.
+
+```bash
+curl -X DELETE "https://your-auth-service.com/admin/realms" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "test-realm",
+    "admin_username": "keycloak-admin",
+    "admin_password": "secure-admin-password"
+  }'
+```
+
+**Response includes**:
+```json
+{
+  "realm_name": "test-realm",
+  "message": "Realm 'test-realm' deleted successfully",
+  "deleted": true,
+  "warning": "Realm and all its data have been permanently deleted",
+  "affected_resources": [
+    "All users in the realm",
+    "All clients in the realm",
+    "All roles and permissions",
+    "All realm configurations"
+  ]
+}
+```
+
+#### 6. **Client Deletion** - `DELETE /admin/clients`
+
+**Purpose**: Permanently delete a specific client from a realm
+
+```bash
+curl -X DELETE "https://your-auth-service.com/admin/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "production-app",
+    "client_id": "mobile-app-client",
+    "admin_username": "keycloak-admin",
+    "admin_password": "secure-admin-password"
+  }'
+```
+
+**Response includes**:
+```json
+{
+  "realm_name": "production-app",
+  "client_id": "mobile-app-client",
+  "message": "Client 'mobile-app-client' deleted successfully",
+  "deleted": true,
+  "warning": "Client has been permanently deleted",
+  "affected_resources": [
+    "Client configuration and settings",
+    "Client roles and permissions",
+    "Client secret (if any)",
+    "All active sessions for this client"
+  ],
+  "next_steps": [
+    "Update your applications to use a different client",
+    "Users will need to re-authenticate with the new client configuration"
+  ]
+}
 ```
 
 ### 🔄 **Complete Workflow - Console-Free Setup**
@@ -533,16 +622,312 @@ curl -X POST "https://your-auth-service.com/auth/login" \
 4. **Least Privilege**: Created clients have minimal required permissions
 5. **Automation Ready**: Perfect for CI/CD and infrastructure as code
 
+## 🔧 **Service Account Permissions Setup**
+
+🆕 **AUTOMATED SOLUTION AVAILABLE**: As of the latest update, when creating clients with `service_accounts_enabled=true`, the API **automatically assigns** the required `manage-users` and `view-users` roles. Manual setup is now **optional** for most use cases.
+
+### 📖 **Understanding Service Account Permissions**
+
+**What are Service Accounts?**
+- Service accounts allow applications to authenticate and perform operations on behalf of the application itself
+- When enabled, Keycloak creates a special user for the client that can be assigned roles
+- **NEW**: Our API now automatically assigns required roles for user management
+
+**Why This Enhancement Matters:**
+- ✅ **Before**: Manual role assignment via Keycloak console required
+- ✅ **Now**: Automatic role assignment during client creation
+- ✅ **Benefit**: Immediate user management capabilities without console access
+
+### 🚀 **Method 1: Automated Role Assignment (RECOMMENDED)**
+
+**Step 1: Create Client with Automatic Role Assignment**
+```bash
+# Create client with service accounts enabled - roles assigned automatically
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "petition-pro-client",
+    "client_name": "Petition Pro Client with Auto-Roles",
+    "realm_name": "petition-pro-realm",
+    "redirect_uris": ["http://YOUR-EC2-PUBLIC-IP:3000/*"],
+    "web_origins": ["http://YOUR-EC2-PUBLIC-IP:3000"],
+    "service_accounts_enabled": true,
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+```
+
+**Expected Response:**
+```json
+{
+  "client_secret": {
+    "value": "abc123-generated-secret-xyz789"
+  },
+  "role_assignment": {
+    "service_account_enabled": true,
+    "roles_assigned": true,
+    "assigned_roles": ["manage-users", "view-users"],
+    "service_account_user_id": "uuid-of-service-account"
+  },
+  "client_configuration": {
+    "service_account_configuration": {
+      "automatic_role_assignment": true,
+      "role_assignment_status": "Success"
+    }
+  }
+}
+```
+
+**Step 2: Immediate User Operations**
+```bash
+# User registration works immediately - no manual setup required
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: abc123-generated-secret-xyz789" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "testuser",
+    "email": "test@example.com",
+    "password": "TestPass123!",
+    "firstName": "Test",
+    "lastName": "User"
+  }'
+```
+
+### 🔄 **Method 2: Manual Permission Setup (FALLBACK)**
+
+**Use this method only if automatic role assignment fails or for troubleshooting purposes.**
+
+**Step 1: Access Keycloak Admin Console**
+```bash
+# Access your Keycloak instance
+URL: http://YOUR-EC2-PUBLIC-IP:8080
+Username: petiton_admin
+Password: usa_ai_solution2025
+```
+
+**Step 2: Navigate to Client Service Account**
+1. Go to **Clients** in the left sidebar
+2. Find and click on your client (e.g., `petition-pro-client`)
+3. Click on the **Service Account Roles** tab
+
+**Step 3: Assign Required Roles**
+1. In the **Client Roles** dropdown, select `realm-management`
+2. From **Available Roles**, move these to **Assigned Roles**:
+   ```
+   ✅ manage-users     # Required for user creation/modification
+   ✅ view-users       # Required for user queries
+   ✅ manage-clients   # Optional: for client management
+   ✅ view-clients     # Optional: for client information
+   ```
+3. Click **Add selected** to assign the roles
+
+**Step 4: Verify Permissions**
+```bash
+# Test user registration after role assignment
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "testuser",
+    "email": "test@example.com",
+    "password": "TestPass123!",
+    "firstName": "Test",
+    "lastName": "User"
+  }'
+```
+
+### 🚀 **Method 3: Legacy Manual API Setup (DEPRECATED)**
+
+**⚠️ This method is now deprecated since automatic role assignment is available.**
+
+**Step 1: Delete Existing Client (if needed)**
+```bash
+# Remove client with insufficient permissions
+curl -X DELETE "http://YOUR-EC2-PUBLIC-IP:8000/admin/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "client_id": "petition-pro-client",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+```
+
+**Step 2: Create Client with Service Accounts Enabled**
+```bash
+# Create new client with service account capabilities
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "petition-pro-client",
+    "client_name": "Petition Pro Client with Service Account",
+    "realm_name": "petition-pro-realm",
+    "redirect_uris": ["http://YOUR-EC2-PUBLIC-IP:3000/*"],
+    "web_origins": ["http://YOUR-EC2-PUBLIC-IP:3000"],
+    "service_accounts_enabled": true,
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+```
+
+**Response Example:**
+```json
+{
+  "client_secret": {
+    "type": "secret",
+    "value": "abc123-generated-secret-xyz789"
+  },
+  "client_configuration": {
+    "features_enabled": {
+      "user_login": true,
+      "service_account": true
+    }
+  },
+  "message": "Client 'petition-pro-client' created successfully"
+}
+```
+
+**Step 3: Manual Role Assignment Still Required**
+```bash
+# Note: After API creation, you still need to manually assign roles via console
+# This is because role assignment requires realm-management permissions
+# Future enhancement: Add role assignment to the API
+```
+
+### ⚠️ **Important Notes About Service Account Permissions**
+
+**🆕 Automatic Role Assignment (Current)**:
+- ✅ `manage-users` and `view-users` roles automatically assigned during client creation
+- ✅ Service account immediately ready for user management operations
+- ✅ No manual console access required for basic setup
+- ✅ Role assignment status included in API response
+
+**Security Considerations:**
+- `manage-users` role allows creating, updating, and deleting users
+- `view-users` role allows querying user information
+- Only assign minimum required permissions
+- Service account credentials are tied to the client secret
+- Automatic assignment only includes user management roles (not full realm-admin)
+
+**Troubleshooting Common Issues:**
+```bash
+# Issue 1: "Role assignment failed" in API response
+# Solution: Check admin credentials and ensure realm exists
+
+# Issue 2: "Service account user not found"
+# Solution: Verify service_accounts_enabled: true in request
+
+# Issue 3: "realm-management client not found"
+# Solution: Ensure realm is properly configured and accessible
+
+# Issue 4: Legacy "HTTP 403 Forbidden" during user operations
+# Solution: Use new API with service_accounts_enabled: true for automatic roles
+```
+
+**Fallback to Manual Setup:**
+If automatic role assignment fails, the API response will include:
+```json
+{
+  "role_assignment": {
+    "roles_assigned": false,
+    "role_assignment_error": "Detailed error message"
+  }
+}
+```
+In this case, use Method 2 (Manual Console Setup) above.
+
+### 🔄 **Complete User Management Workflow**
+
+**🆕 NEW AUTOMATED APPROACH (Recommended)**
+
+**1. Setup (One-time) - Fully Automated**
+```bash
+# Create realm
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/realms" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "my-app-realm",
+    "display_name": "My Application",
+    "registration_allowed": true,
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# Create client with automatic role assignment
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/clients" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "my-app-client",
+    "realm_name": "my-app-realm",
+    "service_accounts_enabled": true,
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# ✅ Roles automatically assigned - no manual console access needed!
+```
+
+**2. User Operations (Runtime) - Immediate Use**
+```bash
+# Register new user - works immediately after client creation
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: my-app-client" \
+  -H "X-Client-Secret: client-secret-from-setup" \
+  -H "X-Realm: my-app-realm" \
+  -d '{
+    "username": "newuser",
+    "email": "user@example.com",
+    "password": "SecurePassword123!",
+    "firstName": "John",
+    "lastName": "Doe"
+  }'
+
+# Login user
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: my-app-client" \
+  -H "X-Client-Secret: client-secret-from-setup" \
+  -H "X-Realm: my-app-realm" \
+  -d '{
+    "username": "newuser",
+    "password": "SecurePassword123!"
+  }'
+```
+
+**📋 Legacy Manual Approach (Fallback Only)**
+
+Use this only if automatic role assignment fails:
+
+**1. Setup (One-time)**
+```bash
+# Create realm and client as above
+# Then manually assign roles via Keycloak console (see Method 2 above)
+```
+
 ### 📋 **Production Checklist**
 
 - [ ] Create production realm with company-specific naming
-- [ ] Create clients for each application (web, mobile, API)
+- [ ] Create clients for each application with `service_accounts_enabled: true` for automatic role assignment
+- [ ] Verify automatic role assignment succeeded in API response
 - [ ] Configure appropriate redirect URIs for each environment
 - [ ] Store client secrets securely (e.g., AWS Secrets Manager, Kubernetes secrets)
 - [ ] Set up monitoring for realm and client health
 - [ ] Document client credentials for development teams
 - [ ] Rotate admin credentials regularly
 - [ ] Monitor admin API usage for security auditing
+- [ ] Test user registration/login immediately after client creation (should work without manual setup)
+
+**🆕 Enhanced Production Benefits:**
+- ✅ Zero manual console configuration required for user management
+- ✅ Immediate service account functionality after client creation
+- ✅ Automated role assignment eliminates human error
+- ✅ Faster deployment and setup processes
+- ✅ API-driven infrastructure suitable for CI/CD pipelines
 
 For detailed API documentation and examples, see [ADMIN_APIS.md](./ADMIN_APIS.md).
 
@@ -850,6 +1235,16 @@ Common HTTP status codes:
 - **Purpose**: Get detailed client information including credentials and capabilities
 - **Features**: Client secret retrieval, role information, capability analysis
 
+#### 5. **Realm Deletion API**
+- **Endpoint**: `DELETE /admin/realms`
+- **Purpose**: Permanently delete Keycloak realms and all associated data
+- **Features**: Comprehensive data cleanup, detailed warnings, affected resource listing
+
+#### 6. **Client Deletion API**
+- **Endpoint**: `DELETE /admin/clients`
+- **Purpose**: Permanently delete clients from specific realms
+- **Features**: Client cleanup, session invalidation, migration guidance
+
 ### 🔒 **Security Enhancements**
 
 #### **Admin Credentials Removed from Environment**
@@ -1029,6 +1424,8 @@ docker-compose logs -f auth-service
 - **Create Client**: `POST /admin/clients`
 - **Realm Info**: `POST /admin/realms/info`
 - **Client Info**: `POST /admin/clients/info`
+- **Delete Realm**: `DELETE /admin/realms` ⚠️
+- **Delete Client**: `DELETE /admin/clients` ⚠️
 
 ### 🛡️ **Security Checklist**
 - [ ] Admin credentials passed per-request (not in environment)

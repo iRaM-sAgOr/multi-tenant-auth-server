@@ -954,7 +954,7 @@ class MultiTenantKeycloakClient:
 
     async def create_client(self, client_data: Dict[str, Any], realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
         """
-        Create a new client in a specific realm.
+        Create a new client in a specific realm with automatic service account role assignment.
 
         Args:
             client_data: Dictionary containing client configuration
@@ -963,7 +963,7 @@ class MultiTenantKeycloakClient:
             admin_password: Keycloak admin password
 
         Returns:
-            Dict containing created client information
+            Dict containing created client information and role assignment status
 
         Raises:
             HTTPException: If client creation fails
@@ -988,6 +988,75 @@ class MultiTenantKeycloakClient:
                 client_secret = admin_client.get_client_secrets(
                     client_info["id"])
 
+            # Initialize role assignment status
+            role_assignment_status = {
+                "service_account_enabled": client_data.get("serviceAccountsEnabled", False),
+                "roles_assigned": False,
+                "assigned_roles": [],
+                "role_assignment_error": None
+            }
+
+            # If service accounts are enabled, automatically assign required roles
+            if client_data.get("serviceAccountsEnabled", False) and client_info:
+                try:
+                    # Get the service account user for this client
+                    service_account_user = admin_client.get_client_service_account_user(
+                        client_info["id"])
+
+                    if service_account_user:
+                        # Get the realm-management client in this realm
+                        realm_mgmt_clients = [
+                            c for c in clients if c["clientId"] == "realm-management"]
+
+                        if realm_mgmt_clients:
+                            realm_mgmt_client = realm_mgmt_clients[0]
+
+                            # Get available roles from realm-management client
+                            available_roles = admin_client.get_client_roles(
+                                realm_mgmt_client["id"])
+
+                            # Define required roles for user management
+                            required_role_names = [
+                                "manage-users", "view-users"]
+                            roles_to_assign = []
+
+                            # Find the required roles
+                            for role_name in required_role_names:
+                                role = next(
+                                    (r for r in available_roles if r["name"] == role_name), None)
+                                if role:
+                                    roles_to_assign.append(role)
+
+                            # Assign the roles to the service account
+                            if roles_to_assign:
+                                admin_client.assign_client_role(
+                                    user_id=service_account_user["id"],
+                                    client_id=realm_mgmt_client["id"],
+                                    roles=roles_to_assign
+                                )
+
+                                role_assignment_status.update({
+                                    "roles_assigned": True,
+                                    "assigned_roles": [role["name"] for role in roles_to_assign],
+                                    "service_account_user_id": service_account_user["id"]
+                                })
+
+                                logger.info(
+                                    f"✅ Assigned roles {[r['name'] for r in roles_to_assign]} to service account for client '{client_data['clientId']}'")
+                            else:
+                                role_assignment_status[
+                                    "role_assignment_error"] = "Required roles (manage-users, view-users) not found in realm-management client"
+                        else:
+                            role_assignment_status["role_assignment_error"] = "realm-management client not found in realm"
+                    else:
+                        role_assignment_status["role_assignment_error"] = "Service account user not found for client"
+
+                except Exception as role_error:
+                    role_assignment_status[
+                        "role_assignment_error"] = f"Failed to assign roles: {str(role_error)}"
+                    logger.warning(
+                        f"⚠️ Role assignment failed for client '{client_data['clientId']}': {str(role_error)}")
+
             logger.info(
                 f"Client '{client_data['clientId']}' created successfully in realm '{realm_name}'")
 
@@ -996,7 +1065,8 @@ class MultiTenantKeycloakClient:
                 "client_info": client_info,
                 "client_secret": client_secret,
                 "realm": realm_name,
-                "message": f"Client '{client_data['clientId']}' created successfully"
+                "message": f"Client '{client_data['clientId']}' created successfully",
+                "role_assignment": role_assignment_status
             }
 
         except Exception as e:

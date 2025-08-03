@@ -116,7 +116,12 @@ async def create_client(request: CreateClientRequest):
     Create a new Keycloak client with configurations suitable for user authentication.
 
     This endpoint creates a confidential client with proper settings for login/registration.
-    You can optionally enable service accounts for programmatic operations.
+    When service accounts are enabled, the API automatically assigns required roles for user management.
+
+    NEW FEATURE: Automatic Role Assignment
+    - When service_accounts_enabled=true, the API automatically assigns 'manage-users' and 'view-users' roles
+    - This eliminates the need for manual role assignment via Keycloak console
+    - Service account can immediately perform user management operations
 
     Security Note: Admin credentials are required and passed in the request body.
     These credentials are NOT stored and are only used for this operation.
@@ -127,12 +132,12 @@ async def create_client(request: CreateClientRequest):
     - realm_name: Name of the realm where client should be created
     - redirect_uris: List of allowed redirect URIs
     - web_origins: List of allowed web origins for CORS
-    - service_accounts_enabled: Enable service account for programmatic access (default: False)
+    - service_accounts_enabled: Enable service account with automatic role assignment (default: False)
     - admin_username: Keycloak admin username
     - admin_password: Keycloak admin password
 
     Returns:
-        Dict containing created client information and credentials
+        Dict containing created client information, credentials, and role assignment status
     """
     try:
         # Prepare client configuration for user authentication without admin access
@@ -206,7 +211,8 @@ async def create_client(request: CreateClientRequest):
                     "authorization_code_flow": True,
                     "direct_grant_flow": True,
                     "admin_access": False,  # Explicitly disabled
-                    "service_account": request.service_accounts_enabled  # Reflects actual setting
+                    "service_account": request.service_accounts_enabled,  # Reflects actual setting
+                    "automatic_role_assignment": request.service_accounts_enabled  # New feature
                 },
                 "security_features": {
                     "confidential_client": True,
@@ -214,12 +220,28 @@ async def create_client(request: CreateClientRequest):
                     "implicit_flow_disabled": True,
                     "client_secret_required": True
                 },
+                "service_account_configuration": {
+                    "enabled": request.service_accounts_enabled,
+                    "automatic_role_assignment": result.get("role_assignment", {}).get("roles_assigned", False),
+                    "assigned_roles": result.get("role_assignment", {}).get("assigned_roles", []),
+                    "role_assignment_status": result.get("role_assignment", {}).get("role_assignment_error") or "Success" if result.get("role_assignment", {}).get("roles_assigned") else "Not applicable"
+                },
                 "usage_instructions": [
                     "Use the client_id and client_secret for authentication requests",
                     "This client can authenticate users but cannot perform admin operations",
                     "Redirect URIs and web origins are configured for CORS",
                     "Use Authorization Code Flow or Direct Grant Flow for user authentication"
-                ]
+                ] + (
+                    [
+                        "Service account enabled with automatic role assignment for user management",
+                        "Service account can now create, manage, and view users without manual role assignment",
+                        "Required roles (manage-users, view-users) have been automatically assigned"
+                    ] if request.service_accounts_enabled and result.get("role_assignment", {}).get("roles_assigned") else
+                    [
+                        "Service account enabled but role assignment failed - check logs for details",
+                        "Manual role assignment via Keycloak console may be required"
+                    ] if request.service_accounts_enabled else []
+                )
             }
         }
 
