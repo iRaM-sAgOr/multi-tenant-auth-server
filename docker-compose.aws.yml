@@ -1,0 +1,100 @@
+# AWS Docker Compose Configuration
+# Setup for PostgreSQL, Keycloak, and Auth Service on AWS EC2
+#
+# IMPORTANT AWS NOTES:
+# - Keycloak configured to work without HTTPS requirement
+# - Make sure EC2 Security Group allows inbound traffic on ports 8080 and 8000
+# - Access via: http://YOUR-EC2-PUBLIC-IP:8080 (Keycloak) and http://YOUR-EC2-PUBLIC-IP:8000 (Auth Service)
+#
+# Usage:
+#   docker-compose -f docker-compose.aws.yml --env-file .env.production.aws up -d
+#   
+
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  keycloak_db_service:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak_db
+      POSTGRES_USER: keycloak_db_user
+      POSTGRES_PASSWORD: keycloak_db_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  # Keycloak Identity Provider
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak-server
+    restart: unless-stopped
+    command: start-dev
+    environment:
+      # Keycloak Admin
+      KEYCLOAK_ADMIN: petiton_admin
+      KEYCLOAK_ADMIN_PASSWORD: usa_ai_solution2025
+      
+      # Database Configuration
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://keycloak_db_service:5432/keycloak_db"
+      KC_DB_USERNAME: keycloak_db_user
+      KC_DB_PASSWORD: keycloak_db_password
+      
+      # AWS/Development Settings - Disable HTTPS requirement
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_PROXY: "edge"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      
+      # Additional security settings for AWS
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - keycloak_db_service
+
+  # Authentication Service
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Application Settings
+      APP_NAME: "Multi-Tenant Authentication Service"
+      ENVIRONMENT: "development"
+      DEBUG: "true"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      
+      # Keycloak Configuration
+      KEYCLOAK_SERVER_URL: "http://keycloak:8080"
+      
+      # Security Settings (use environment variables in production)
+      SECRET_KEY: "your-secret-key-change-in-production"
+      ALGORITHM: "HS256"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      
+      # CORS Settings
+      CORS_ORIGINS: '["http://localhost:3000", "http://localhost:8000"]'
+      CORS_ALLOW_CREDENTIALS: "true"
+      
+      # Logging
+      LOG_LEVEL: "INFO"
+    depends_on:
+      - keycloak
+
+
+
+volumes:
+  postgres-data:

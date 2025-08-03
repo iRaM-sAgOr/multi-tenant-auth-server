@@ -220,6 +220,19 @@ docker-compose -f docker-compose.yml --env-file .env.production up -d
 docker-compose ps
 ```
 
+##### Option C: AWS Deployment
+
+```bash
+# 1. Deploy on AWS with AWS-specific configuration
+docker-compose -f docker-compose.aws.yml --env-file .env.production.aws up -d
+
+# 2. Stop AWS deployment
+docker-compose -f docker-compose.aws.yml --env-file .env.production.aws down
+
+# 3. Check service health on AWS
+curl https://your-aws-auth-service-domain.com/health
+```
+
 #### 3. **Production Build Commands**
 
 ```bash
@@ -997,6 +1010,12 @@ The health check functionality is implemented in `app/core/keycloak.py` and inte
 ```bash
 # Build and deploy with managed database
 docker-compose -f docker-compose.production.yml --env-file .env.production up -d
+
+# AWS deployment with AWS-specific configuration
+docker-compose -f docker-compose.aws.yml --env-file .env.production.aws up -d
+
+# Stop AWS deployment
+docker-compose -f docker-compose.aws.yml --env-file .env.production.aws down
 
 # Check service health
 curl https://your-auth-service.com/health

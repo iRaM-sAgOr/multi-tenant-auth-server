@@ -13,7 +13,9 @@ from app.models.auth import (
     CreateRealmRequest,
     CreateClientRequest,
     RealmInfoRequest,
-    ClientInfoRequest
+    ClientInfoRequest,
+    DeleteRealmRequest,
+    DeleteClientRequest
 )
 from app.core.keycloak import keycloak_client
 from app.core.logging import get_structured_logger
@@ -113,8 +115,8 @@ async def create_client(request: CreateClientRequest):
     """
     Create a new Keycloak client with configurations suitable for user authentication.
 
-    This endpoint creates a confidential client with proper settings for login/registration
-    without admin facilities.
+    This endpoint creates a confidential client with proper settings for login/registration.
+    You can optionally enable service accounts for programmatic operations.
 
     Security Note: Admin credentials are required and passed in the request body.
     These credentials are NOT stored and are only used for this operation.
@@ -125,6 +127,7 @@ async def create_client(request: CreateClientRequest):
     - realm_name: Name of the realm where client should be created
     - redirect_uris: List of allowed redirect URIs
     - web_origins: List of allowed web origins for CORS
+    - service_accounts_enabled: Enable service account for programmatic access (default: False)
     - admin_username: Keycloak admin username
     - admin_password: Keycloak admin password
 
@@ -142,7 +145,7 @@ async def create_client(request: CreateClientRequest):
             "standardFlowEnabled": True,  # Authorization Code Flow
             # Direct Grant Flow (username/password)
             "directAccessGrantsEnabled": True,
-            "serviceAccountsEnabled": False,  # No service account - no admin access
+            "serviceAccountsEnabled": request.service_accounts_enabled,  # Configurable service account
             "authorizationServicesEnabled": False,  # No fine-grained permissions
             "fullScopeAllowed": True,
             "redirectUris": request.redirect_uris,
@@ -203,7 +206,7 @@ async def create_client(request: CreateClientRequest):
                     "authorization_code_flow": True,
                     "direct_grant_flow": True,
                     "admin_access": False,  # Explicitly disabled
-                    "service_account": False  # Explicitly disabled
+                    "service_account": request.service_accounts_enabled  # Reflects actual setting
                 },
                 "security_features": {
                     "confidential_client": True,
@@ -360,4 +363,104 @@ async def get_client_info(request: ClientInfoRequest):
     except Exception as e:
         logger.error(
             f"❌ Unexpected error during client info retrieval: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/realms")
+async def delete_realm(request: DeleteRealmRequest):
+    """
+    Delete a Keycloak realm.
+
+    ⚠️ WARNING: This operation is irreversible and will delete ALL data in the realm
+    including users, clients, roles, and configurations.
+
+    Security Note: Admin credentials are required and passed in the request body.
+    These credentials are NOT stored and are only used for this operation.
+
+    Body Parameters:
+    - realm_name: Name of the realm to delete
+    - admin_username: Keycloak admin username
+    - admin_password: Keycloak admin password
+
+    Returns:
+        Dict containing deletion confirmation
+    """
+    try:
+        result = await keycloak_client.delete_realm(
+            realm_name=request.realm_name,
+            admin_username=request.admin_username,
+            admin_password=request.admin_password
+        )
+
+        logger.warning(f"🗑️ Realm '{request.realm_name}' deleted permanently")
+
+        return {
+            **result,
+            "warning": "Realm and all its data have been permanently deleted",
+            "affected_resources": [
+                "All users in the realm",
+                "All clients in the realm", 
+                "All roles and permissions",
+                "All realm configurations"
+            ]
+        }
+
+    except HTTPException:
+        logger.error(f"❌ Failed to delete realm '{request.realm_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during realm deletion: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/clients")
+async def delete_client(request: DeleteClientRequest):
+    """
+    Delete a Keycloak client from a specific realm.
+
+    This operation will permanently remove the client and all its configurations.
+    Users will no longer be able to authenticate using this client.
+
+    Security Note: Admin credentials are required and passed in the request body.
+    These credentials are NOT stored and are only used for this operation.
+
+    Body Parameters:
+    - realm_name: Name of the realm containing the client
+    - client_id: Client ID to delete
+    - admin_username: Keycloak admin username
+    - admin_password: Keycloak admin password
+
+    Returns:
+        Dict containing deletion confirmation
+    """
+    try:
+        result = await keycloak_client.delete_client(
+            realm_name=request.realm_name,
+            client_id=request.client_id,
+            admin_username=request.admin_username,
+            admin_password=request.admin_password
+        )
+
+        logger.warning(f"🗑️ Client '{request.client_id}' deleted from realm '{request.realm_name}'")
+
+        return {
+            **result,
+            "warning": "Client has been permanently deleted",
+            "affected_resources": [
+                "Client configuration and settings",
+                "Client roles and permissions", 
+                "Client secret (if any)",
+                "All active sessions for this client"
+            ],
+            "next_steps": [
+                "Update your applications to use a different client",
+                "Users will need to re-authenticate with the new client configuration"
+            ]
+        }
+
+    except HTTPException:
+        logger.error(f"❌ Failed to delete client '{request.client_id}' from realm '{request.realm_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during client deletion: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

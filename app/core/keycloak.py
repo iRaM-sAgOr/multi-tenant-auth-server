@@ -1160,6 +1160,140 @@ class MultiTenantKeycloakClient:
                 }
             )
 
+    async def delete_realm(self, realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Delete a Keycloak realm.
+
+        Args:
+            realm_name: Name of the realm to delete
+            admin_username: Keycloak admin username  
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing deletion confirmation
+
+        Raises:
+            HTTPException: If realm deletion fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+
+            # Check if realm exists first
+            try:
+                realm_info = admin_client.get_realm(realm_name)
+                if not realm_info:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail={
+                            "error": "Realm not found",
+                            "message": f"Realm '{realm_name}' does not exist"
+                        }
+                    )
+            except Exception as e:
+                if "404" in str(e) or "not found" in str(e).lower():
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail={
+                            "error": "Realm not found",
+                            "message": f"Realm '{realm_name}' does not exist"
+                        }
+                    )
+                raise
+
+            # Delete the realm
+            admin_client.delete_realm(realm_name)
+
+            logger.info(f"✅ Realm '{realm_name}' deleted successfully")
+
+            return {
+                "realm_name": realm_name,
+                "message": f"Realm '{realm_name}' deleted successfully",
+                "deleted": True,
+                "timestamp": __import__('datetime').datetime.now().isoformat()
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Failed to delete realm '{realm_name}': {error_str}")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to delete realm",
+                    "message": f"Could not delete realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def delete_client(self, realm_name: str, client_id: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Delete a Keycloak client from a specific realm.
+
+        Args:
+            realm_name: Name of the realm containing the client
+            client_id: Client ID to delete
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing deletion confirmation
+
+        Raises:
+            HTTPException: If client deletion fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name
+
+            # Get all clients and find the specific one
+            clients = admin_client.get_clients()
+            client_info = next(
+                (c for c in clients if c["clientId"] == client_id), None)
+
+            if not client_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "Client not found",
+                        "message": f"Client '{client_id}' not found in realm '{realm_name}'"
+                    }
+                )
+
+            # Delete the client using its internal ID
+            client_uuid = client_info["id"]
+            admin_client.delete_client(client_uuid)
+
+            logger.info(
+                f"✅ Client '{client_id}' deleted successfully from realm '{realm_name}'")
+
+            return {
+                "realm_name": realm_name,
+                "client_id": client_id,
+                "message": f"Client '{client_id}' deleted successfully from realm '{realm_name}'",
+                "deleted": True,
+                "timestamp": __import__('datetime').datetime.now().isoformat()
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to delete client '{client_id}' from realm '{realm_name}': {error_str}")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to delete client",
+                    "message": f"Could not delete client '{client_id}' from realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
+            )
+
 
 # Global Multi-Tenant Keycloak client instance
 keycloak_client = MultiTenantKeycloakClient()

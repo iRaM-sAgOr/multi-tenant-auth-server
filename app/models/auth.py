@@ -69,6 +69,7 @@ class CreateClientRequest(BaseModel):
     realm_name: str
     redirect_uris: List[str] = ["http://localhost:3000/*"]
     web_origins: List[str] = ["http://localhost:3000"]
+    service_accounts_enabled: bool = False  # Enable service account for programmatic access
     admin_username: str
     admin_password: str
 
@@ -82,6 +83,21 @@ class RealmInfoRequest(BaseModel):
 
 class ClientInfoRequest(BaseModel):
     """Request model for client information endpoint"""
+    realm_name: str
+    client_id: str
+    admin_username: str
+    admin_password: str
+
+
+class DeleteRealmRequest(BaseModel):
+    """Request model for realm deletion endpoint"""
+    realm_name: str
+    admin_username: str
+    admin_password: str
+
+
+class DeleteClientRequest(BaseModel):
+    """Request model for client deletion endpoint"""
     realm_name: str
     client_id: str
     admin_username: str
