@@ -93,12 +93,25 @@ async def register(
     client_config: ClientConfig = Depends(get_client_config)
 ):
     """
-    Register new user for a specific client application
+    Register new user for a specific client application with automatic role assignment
+
+    🆕 NEW FEATURE: Automatic Role Assignment
+    - Default role: 'user' (can be customized via roles parameter)
+    - Supports multiple roles: ['user', 'paid-user', 'lawyer', etc.]
+    - Roles must exist in the realm before assignment
 
     Required headers:
     - X-Client-Id: Your application's client ID
     - X-Client-Secret: Your application's client secret
     - X-Realm: Keycloak realm name
+
+    Body Parameters:
+    - username: Username for the new user
+    - email: Email address
+    - password: Password for the user
+    - firstName: First name (optional)
+    - lastName: Last name (optional)
+    - roles: List of roles to assign (default: ['user'])
     """
     try:
         user_data = {
@@ -116,7 +129,8 @@ async def register(
 
         result = await keycloak_client.create_user(
             user_data=user_data,
-            client_config=client_config
+            client_config=client_config,
+            roles=request.roles  # Pass roles for automatic assignment
         )
         logger.info(
             "✅ User registration successful",

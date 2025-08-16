@@ -1426,6 +1426,232 @@ docker-compose logs -f auth-service
 - **Client Info**: `POST /admin/clients/info`
 - **Delete Realm**: `DELETE /admin/realms` ⚠️
 - **Delete Client**: `DELETE /admin/clients` ⚠️
+- **🆕 Create Role**: `POST /admin/roles`
+- **🆕 Assign User Roles**: `POST /admin/users/roles/assign`
+- **🆕 Get User Roles**: `POST /admin/users/roles`
+
+## 🎭 **Role-Based Access Control (RBAC) System**
+
+### 📖 **Understanding Roles in Your Application**
+
+**Role Types Available:**
+- **`user`** - Basic registered user (default for new registrations)
+- **`paid-user`** - User with premium subscription
+- **`premium-user`** - Highest tier user with all features
+- **`lawyer`** - Legal professional with special permissions
+- **`admin`** - Administrative access to application features
+
+### 🚀 **Method 1: Automated Role Setup via API (RECOMMENDED)**
+
+#### **Step 1: Create Realm Roles**
+```bash
+# Create basic user role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/roles" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "role_name": "user",
+    "role_description": "Basic registered user with standard access",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# Create paid user role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/roles" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "role_name": "paid-user",
+    "role_description": "User with premium subscription and additional features",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# Create lawyer role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/roles" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "role_name": "lawyer",
+    "role_description": "Legal professional with special permissions",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# Create premium user role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/roles" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "role_name": "premium-user",
+    "role_description": "Highest tier user with all premium features",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+```
+
+#### **Step 2: User Registration with Automatic Role Assignment**
+```bash
+# Register user with default 'user' role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "john_doe",
+    "email": "john@example.com",
+    "password": "SecurePass123!",
+    "firstName": "John",
+    "lastName": "Doe",
+    "roles": ["user"]
+  }'
+
+# Register lawyer with lawyer role
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "jane_lawyer",
+    "email": "jane@lawfirm.com",
+    "password": "LawyerPass123!",
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "roles": ["lawyer", "user"]
+  }'
+
+# Register premium user with multiple roles
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "premium_user",
+    "email": "premium@example.com",
+    "password": "PremiumPass123!",
+    "firstName": "Premium",
+    "lastName": "User",
+    "roles": ["premium-user", "paid-user", "user"]
+  }'
+```
+
+#### **Step 3: Dynamic Role Assignment (Post-Registration)**
+```bash
+# Upgrade user to paid-user
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/users/roles/assign" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "username": "john_doe",
+    "roles": ["paid-user"],
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+
+# Check user roles
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/users/roles" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "petition-pro-realm",
+    "username": "john_doe",
+    "admin_username": "petiton_admin",
+    "admin_password": "usa_ai_solution2025"
+  }'
+```
+
+### 🔄 **Method 2: Manual Role Setup via Keycloak Console**
+
+**Step 1: Create Roles via Console**
+1. Access Keycloak: `http://YOUR-EC2-PUBLIC-IP:8080`
+2. Go to **Realm Roles** → **Create Role**
+3. Create each role: `user`, `paid-user`, `premium-user`, `lawyer`
+
+**Step 2: Assign Roles Manually**
+1. Go to **Users** → Select user → **Role Mappings**
+2. Assign appropriate roles from **Realm Roles**
+
+### 🎯 **Role-Based Authentication Flow**
+
+When users log in, their roles are included in the JWT token:
+
+```bash
+# Login user
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: petition-pro-client" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: petition-pro-realm" \
+  -d '{
+    "username": "jane_lawyer",
+    "password": "LawyerPass123!"
+  }'
+```
+
+**JWT Token Contains:**
+```json
+{
+  "realm_access": {
+    "roles": ["lawyer", "user"]
+  },
+  "preferred_username": "jane_lawyer",
+  "email": "jane@lawfirm.com"
+}
+```
+
+### 🏗️ **Application Implementation Examples**
+
+#### **Frontend Role-Based Access**
+```javascript
+// Extract roles from JWT token
+const userRoles = tokenPayload.realm_access.roles;
+
+// Show different UI based on roles
+if (userRoles.includes('lawyer')) {
+  showLawyerDashboard();
+} else if (userRoles.includes('premium-user')) {
+  showPremiumFeatures();
+} else if (userRoles.includes('paid-user')) {
+  showPaidFeatures();
+} else {
+  showBasicUserInterface();
+}
+```
+
+#### **Backend Role Verification**
+```python
+# Validate token and check roles
+token_info = await keycloak_client.validate_token(token, client_config)
+user_roles = token_info.get("roles", [])
+
+# Role-based access control
+if "lawyer" in user_roles:
+    return legal_documents_access()
+elif "premium-user" in user_roles:
+    return premium_features_access()
+else:
+    return basic_user_access()
+```
+
+### 📊 **Role Management Best Practices**
+
+**Role Hierarchy Recommendation:**
+```
+admin (highest privilege)
+├── lawyer (legal professional features)
+├── premium-user (all paid features)
+│   └── paid-user (basic subscription features)
+│       └── user (basic registered user)
+```
+
+**Security Considerations:**
+- ✅ Assign minimum required roles for functionality
+- ✅ Use multiple roles for granular permissions
+- ✅ Regularly audit user role assignments
+- ✅ Implement role-based API endpoint protection
+- ✅ Log role changes for security auditing
 
 ### 🛡️ **Security Checklist**
 - [ ] Admin credentials passed per-request (not in environment)

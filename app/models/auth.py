@@ -22,6 +22,7 @@ class RegisterRequest(BaseModel):
     password: str
     firstName: Optional[str] = None
     lastName: Optional[str] = None
+    roles: Optional[List[str]] = ["user"]  # Default role assignment
 
 
 class TokenValidationRequest(BaseModel):
@@ -100,6 +101,32 @@ class DeleteClientRequest(BaseModel):
     """Request model for client deletion endpoint"""
     realm_name: str
     client_id: str
+    admin_username: str
+    admin_password: str
+
+
+class CreateRoleRequest(BaseModel):
+    """Request model for creating realm roles"""
+    realm_name: str
+    role_name: str
+    role_description: Optional[str] = None
+    admin_username: str
+    admin_password: str
+
+
+class AssignRoleRequest(BaseModel):
+    """Request model for assigning roles to users"""
+    realm_name: str
+    username: str
+    roles: List[str]  # List of role names to assign
+    admin_username: str
+    admin_password: str
+
+
+class UserRoleRequest(BaseModel):
+    """Request model for getting user roles"""
+    realm_name: str
+    username: str
     admin_username: str
     admin_password: str
 

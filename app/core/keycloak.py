@@ -502,16 +502,17 @@ class MultiTenantKeycloakClient:
                 f"Logout failed for client {client_config.client_id}: {str(e)}")
             return False
 
-    async def create_user(self, user_data: Dict[str, Any], client_config: ClientConfig) -> Dict[str, Any]:
+    async def create_user(self, user_data: Dict[str, Any], client_config: ClientConfig, roles: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Create a new user in Keycloak for a specific client.
+        Create a new user in Keycloak for a specific client with optional role assignment.
 
         Args:
             user_data: Dictionary containing user information
             client_config: Client configuration
+            roles: Optional list of role names to assign to the user
 
         Returns:
-            Dict containing created user information
+            Dict containing created user information and role assignment status
 
         Raises:
             HTTPException: If user creation fails or admin client not available
@@ -537,8 +538,51 @@ class MultiTenantKeycloakClient:
             )
 
         try:
+            # Create the user
             user_id = keycloak_admin.create_user(user_data)
             user_details = keycloak_admin.get_user(user_id)
+
+            # Role assignment status
+            role_assignment_status = {
+                "roles_requested": roles or [],
+                "roles_assigned": [],
+                "role_assignment_errors": []
+            }
+
+            # Assign roles if provided
+            if roles:
+                try:
+                    # Get available realm roles
+                    available_roles = keycloak_admin.get_realm_roles()
+                    available_role_names = [role['name']
+                                            for role in available_roles]
+
+                    # Prepare roles to assign
+                    roles_to_assign = []
+                    for role_name in roles:
+                        if role_name in available_role_names:
+                            role_obj = next(
+                                role for role in available_roles if role['name'] == role_name)
+                            roles_to_assign.append(role_obj)
+                            role_assignment_status["roles_assigned"].append(
+                                role_name)
+                        else:
+                            role_assignment_status["role_assignment_errors"].append(
+                                f"Role '{role_name}' not found in realm")
+
+                    # Assign the roles
+                    if roles_to_assign:
+                        keycloak_admin.assign_realm_roles(
+                            user_id=user_id, roles=roles_to_assign)
+                        logger.info(
+                            f"✅ Assigned roles {[r['name'] for r in roles_to_assign]} to user {user_data.get('username')}")
+
+                except Exception as role_error:
+                    error_msg = f"Failed to assign roles: {str(role_error)}"
+                    role_assignment_status["role_assignment_errors"].append(
+                        error_msg)
+                    logger.warning(
+                        f"⚠️ Role assignment failed for user {user_data.get('username')}: {error_msg}")
 
             logger.info(
                 f"User created successfully with ID: {user_id} for client {client_config.client_id}")
@@ -546,6 +590,7 @@ class MultiTenantKeycloakClient:
             return {
                 "user_id": user_id,
                 "user_details": user_details,
+                "role_assignment": role_assignment_status,
                 "client_info": {
                     "client_id": client_config.client_id,
                     "realm": client_config.realm
@@ -1360,6 +1405,225 @@ class MultiTenantKeycloakClient:
                 detail={
                     "error": "Failed to delete client",
                     "message": f"Could not delete client '{client_id}' from realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def create_realm_role(self, realm_name: str, role_name: str, role_description: Optional[str], admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Create a new realm role.
+
+        Args:
+            realm_name: Name of the realm
+            role_name: Name of the role to create
+            role_description: Description of the role
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing created role information
+
+        Raises:
+            HTTPException: If role creation fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name
+
+            # Prepare role data
+            role_data = {
+                "name": role_name,
+                "description": role_description or f"Role: {role_name}",
+                "composite": False,
+                "clientRole": False
+            }
+
+            # Create the role
+            admin_client.create_realm_role(
+                payload=role_data, skip_exists=False)
+
+            # Get the created role info
+            role_info = admin_client.get_realm_role(role_name)
+
+            logger.info(
+                f"✅ Realm role '{role_name}' created successfully in realm '{realm_name}'")
+
+            return {
+                "role_name": role_name,
+                "role_info": role_info,
+                "realm_name": realm_name,
+                "message": f"Role '{role_name}' created successfully in realm '{realm_name}'"
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to create role '{role_name}' in realm '{realm_name}': {error_str}")
+
+            if "409" in error_str or "exists" in error_str.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "Role already exists",
+                        "message": f"Role '{role_name}' already exists in realm '{realm_name}'",
+                        "keycloak_error": error_str
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "Role creation failed",
+                        "message": f"Failed to create role '{role_name}' in realm '{realm_name}'",
+                        "keycloak_error": error_str
+                    }
+                )
+
+    async def assign_user_roles(self, realm_name: str, username: str, roles: List[str], admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Assign realm roles to a user.
+
+        Args:
+            realm_name: Name of the realm
+            username: Username of the user
+            roles: List of role names to assign
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing role assignment status
+
+        Raises:
+            HTTPException: If role assignment fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name
+
+            # Find the user
+            users = admin_client.get_users({"username": username})
+            if not users:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "User not found",
+                        "message": f"User '{username}' not found in realm '{realm_name}'"
+                    }
+                )
+
+            user_id = users[0]["id"]
+
+            # Get available realm roles
+            available_roles = admin_client.get_realm_roles()
+            available_role_names = [role['name'] for role in available_roles]
+
+            # Prepare roles to assign
+            roles_to_assign = []
+            assignment_status = {
+                "roles_requested": roles,
+                "roles_assigned": [],
+                "role_assignment_errors": []
+            }
+
+            for role_name in roles:
+                if role_name in available_role_names:
+                    role_obj = next(
+                        role for role in available_roles if role['name'] == role_name)
+                    roles_to_assign.append(role_obj)
+                    assignment_status["roles_assigned"].append(role_name)
+                else:
+                    assignment_status["role_assignment_errors"].append(
+                        f"Role '{role_name}' not found in realm")
+
+            # Assign the roles
+            if roles_to_assign:
+                admin_client.assign_realm_roles(
+                    user_id=user_id, roles=roles_to_assign)
+                logger.info(
+                    f"✅ Assigned roles {[r['name'] for r in roles_to_assign]} to user '{username}' in realm '{realm_name}'")
+
+            return {
+                "username": username,
+                "realm_name": realm_name,
+                "assignment_status": assignment_status,
+                "message": f"Role assignment completed for user '{username}'"
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to assign roles to user '{username}' in realm '{realm_name}': {error_str}")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Role assignment failed",
+                    "message": f"Failed to assign roles to user '{username}' in realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def get_user_roles_info(self, realm_name: str, username: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Get roles assigned to a user.
+
+        Args:
+            realm_name: Name of the realm
+            username: Username of the user
+            admin_username: Keycloak admin username
+            admin_password: Keycloak admin password
+
+        Returns:
+            Dict containing user roles
+
+        Raises:
+            HTTPException: If user role retrieval fails
+        """
+        try:
+            admin_client = self._get_master_admin_client(
+                admin_username, admin_password)
+            admin_client.connection.realm_name = realm_name
+
+            # Find the user
+            users = admin_client.get_users({"username": username})
+            if not users:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "User not found",
+                        "message": f"User '{username}' not found in realm '{realm_name}'"
+                    }
+                )
+
+            user_id = users[0]["id"]
+
+            # Get user's realm roles
+            user_realm_roles = admin_client.get_realm_roles_of_user(user_id)
+
+            return {
+                "username": username,
+                "realm_name": realm_name,
+                "user_id": user_id,
+                "realm_roles": [role["name"] for role in user_realm_roles],
+                "role_details": user_realm_roles
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to get roles for user '{username}' in realm '{realm_name}': {error_str}")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to retrieve user roles",
+                    "message": f"Could not get roles for user '{username}' in realm '{realm_name}'",
                     "keycloak_error": error_str
                 }
             )

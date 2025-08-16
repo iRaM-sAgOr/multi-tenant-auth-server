@@ -15,7 +15,10 @@ from app.models.auth import (
     RealmInfoRequest,
     ClientInfoRequest,
     DeleteRealmRequest,
-    DeleteClientRequest
+    DeleteClientRequest,
+    CreateRoleRequest,
+    AssignRoleRequest,
+    UserRoleRequest
 )
 from app.core.keycloak import keycloak_client
 from app.core.logging import get_structured_logger
@@ -485,4 +488,122 @@ async def delete_client(request: DeleteClientRequest):
         raise
     except Exception as e:
         logger.error(f"❌ Unexpected error during client deletion: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/roles")
+async def create_role(request: CreateRoleRequest):
+    """
+    Create a new realm role.
+
+    This endpoint creates a new role in the specified realm that can be assigned to users.
+
+    Security Note: Admin credentials are required and passed in the request body.
+    These credentials are NOT stored and are only used for this operation.
+
+    Body Parameters:
+    - realm_name: Name of the realm where role should be created
+    - role_name: Name of the role (e.g., 'user', 'paid-user', 'lawyer')
+    - role_description: Description of the role (optional)
+    - admin_username: Keycloak admin username
+    - admin_password: Keycloak admin password
+
+    Returns:
+        Dict containing created role information
+    """
+    try:
+        result = await keycloak_client.create_realm_role(
+            realm_name=request.realm_name,
+            role_name=request.role_name,
+            role_description=request.role_description,
+            admin_username=request.admin_username,
+            admin_password=request.admin_password
+        )
+
+        logger.info(f"✅ Role '{request.role_name}' created successfully in realm '{request.realm_name}'")
+        return result
+
+    except HTTPException:
+        logger.error(f"❌ Failed to create role '{request.role_name}' in realm '{request.realm_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during role creation: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/users/roles/assign")
+async def assign_user_roles(request: AssignRoleRequest):
+    """
+    Assign roles to a user.
+
+    This endpoint assigns specified roles to a user in the given realm.
+
+    Security Note: Admin credentials are required and passed in the request body.
+    These credentials are NOT stored and are only used for this operation.
+
+    Body Parameters:
+    - realm_name: Name of the realm
+    - username: Username of the user
+    - roles: List of role names to assign (e.g., ['user', 'paid-user'])
+    - admin_username: Keycloak admin username
+    - admin_password: Keycloak admin password
+
+    Returns:
+        Dict containing role assignment status
+    """
+    try:
+        result = await keycloak_client.assign_user_roles(
+            realm_name=request.realm_name,
+            username=request.username,
+            roles=request.roles,
+            admin_username=request.admin_username,
+            admin_password=request.admin_password
+        )
+
+        logger.info(f"✅ Roles assigned to user '{request.username}' in realm '{request.realm_name}'")
+        return result
+
+    except HTTPException:
+        logger.error(f"❌ Failed to assign roles to user '{request.username}' in realm '{request.realm_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during role assignment: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/users/roles")
+async def get_user_roles(request: UserRoleRequest):
+    """
+    Get roles assigned to a user.
+
+    This endpoint retrieves all roles assigned to a specific user in the given realm.
+
+    Security Note: Admin credentials are required and passed in the request body.
+    These credentials are NOT stored and are only used for this operation.
+
+    Body Parameters:
+    - realm_name: Name of the realm
+    - username: Username of the user
+    - admin_username: Keycloak admin username
+    - admin_password: Keycloak admin password
+
+    Returns:
+        Dict containing user roles information
+    """
+    try:
+        result = await keycloak_client.get_user_roles_info(
+            realm_name=request.realm_name,
+            username=request.username,
+            admin_username=request.admin_username,
+            admin_password=request.admin_password
+        )
+
+        logger.info(f"✅ Retrieved roles for user '{request.username}' in realm '{request.realm_name}'")
+        return result
+
+    except HTTPException:
+        logger.error(f"❌ Failed to get roles for user '{request.username}' in realm '{request.realm_name}'")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during role retrieval: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
