@@ -1,6 +1,6 @@
 # Multi-Tenant Authentication Service
 
-A FastAPI-based authentication service that provides multi-tenant support with Keycloak as the identity provider. This service includes comprehensive health checking, startup verification, and complete administrative APIs for Keycloak management without console access.
+A FastAPI-based authentication service that provides multi-tenant support with Keycloak as the identity provider. This service includes comprehensive health checking, startup verification, complete administrative APIs for Keycloak management, and advanced user management features.
 
 ## 🌟 Features Overview
 
@@ -9,6 +9,21 @@ A FastAPI-based authentication service that provides multi-tenant support with K
 - JWT token generation and validation
 - User management and role-based access control
 - Session management across multiple applications
+- **🆕 Email Verification**: Automated email verification for new users
+- **🆕 Password Reset**: Secure password reset via email
+- **🆕 Role Assignment**: Automatic role assignment during registration
+
+### 📧 Email & Communication Features
+- **Email Verification**: Send verification emails to new users
+- **Password Reset**: Secure password reset flow via email
+- **Resend Verification**: Resend verification emails if needed
+- **SMTP Integration**: Full SMTP configuration support via Keycloak
+
+### 👥 User Management & Roles
+- **Default Role Assignment**: Automatic "user" role assignment during registration
+- **Custom Roles**: Support for custom roles (admin, moderator, paid-user, lawyer, etc.)
+- **Multi-Role Assignment**: Assign multiple roles to users simultaneously
+- **Role Validation**: Automatic validation of roles during assignment
 
 ### 🔧 Administrative Operations
 - **Realm Management**: Create and configure new Keycloak realms
@@ -41,12 +56,352 @@ The service includes robust health checking functionality to ensure reliable ope
 ### 1. 🚀 Install and Start Keycloak
 
 #### Option A: Docker (Recommended)
+
+##### For Local Development:
 ```bash
 docker run -p 8080:8080 \
   -e KEYCLOAK_ADMIN=admin \
   -e KEYCLOAK_ADMIN_PASSWORD=admin \
   quay.io/keycloak/keycloak:latest \
   start-dev
+```
+
+##### For EC2/Remote Server (HTTPS Required Issue Fix):
+```bash
+# Step 1: Stop any existing keycloak containers
+docker stop keycloak-dev 2>/dev/null || true
+docker rm keycloak-dev 2>/dev/null || true
+
+# Step 2: Start Keycloak with proper EC2 configuration
+docker run -d --name keycloak-dev \
+  -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_STRICT_HTTPS=false \
+  -e KC_HTTP_ENABLED=true \
+  -e KC_PROXY=edge \
+  quay.io/keycloak/keycloak:latest \
+  start-dev --hostname-strict=false --hostname-strict-https=false --http-enabled=true
+
+# Step 3: Wait for container to start (30-60 seconds)
+echo "Waiting for Keycloak to start..."
+sleep 30
+
+# Step 4: Check container status
+docker logs keycloak-dev --tail 20
+
+# Step 5: Verify Keycloak is running
+curl -f http://localhost:8080/ || echo "Keycloak not ready yet, wait longer"
+```
+
+##### Alternative EC2 Command (Simplified):
+```bash
+# This command often fails with "HTTPS required" - use the corrected version below instead
+docker run -d --name keycloak-ec2 \
+  -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  quay.io/keycloak/keycloak:latest \
+  start-dev --hostname-strict=false --http-enabled=true
+```
+
+##### ✅ **CORRECTED EC2 Command (Use This Instead):**
+```bash
+# Stop and remove any existing containers first
+docker stop keycloak-ec2 keycloak-dev 2>/dev/null || true
+docker rm keycloak-ec2 keycloak-dev 2>/dev/null || true
+
+# Run with ALL required environment variables for EC2
+docker run -d --name keycloak-ec2 \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_HTTP_ENABLED=true \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_STRICT_HTTPS=false \
+  -e KC_PROXY=edge \
+  quay.io/keycloak/keycloak:latest \
+  start-dev
+
+# Wait for startup and check logs
+sleep 30
+docker logs keycloak-ec2 --tail 20
+```
+
+### ⚠️ **"HTTPS Required" Error - Quick Fix**
+
+If you're getting "HTTPS required" error on EC2, use this exact command:
+
+```bash
+# 1. Clean up any existing containers
+docker stop $(docker ps -aq --filter "name=keycloak") 2>/dev/null || true
+docker rm $(docker ps -aq --filter "name=keycloak") 2>/dev/null || true
+
+# 2. Use this EXACT command for EC2
+docker run -d --name keycloak-ec2-fixed \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_HTTP_ENABLED=true \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_STRICT_HTTPS=false \
+  -e KC_PROXY=edge \
+  -e KC_HEALTH_ENABLED=true \
+  quay.io/keycloak/keycloak:latest \
+  start-dev
+
+# 3. Wait for container to fully start (important!)
+echo "Waiting for Keycloak to start completely..."
+sleep 60  # Keycloak needs time to initialize
+
+# 4. Check if it's working
+docker logs keycloak-ec2-fixed --tail 30
+curl -I http://localhost:8080/ || echo "Still starting up..."
+
+# 5. Test admin console access
+echo "Try accessing: http://YOUR-EC2-PUBLIC-IP:8080/admin/"
+echo "Username: admin"
+echo "Password: admin"
+```
+
+**Key Differences in the Fixed Command:**
+- ✅ `KC_HTTP_ENABLED=true` (environment variable, not just command flag)
+- ✅ `KC_HOSTNAME_STRICT=false` (environment variable)
+- ✅ `KC_HOSTNAME_STRICT_HTTPS=false` (environment variable)
+- ✅ `KC_PROXY=edge` (tells Keycloak it's behind a proxy/load balancer)
+- ✅ Longer wait time (60 seconds) for full startup
+- ✅ Uses `start-dev` without additional flags (environment variables handle it)
+
+# Start with EC2-optimized settings
+docker run -d --name keycloak-ec2 \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_HTTP_ENABLED=true \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HOSTNAME_STRICT_HTTPS=false \
+  -e KC_PROXY=edge \
+  -e KC_LOG_LEVEL=INFO \
+  quay.io/keycloak/keycloak:latest \
+  start-dev
+
+# Wait and check status
+sleep 30
+docker logs keycloak-ec2 --tail 10
+```
+
+#### **Step 6: Access Keycloak Admin Console**
+- **URL**: `http://YOUR-EC2-PUBLIC-IP:8080`
+- **Username**: `admin`
+- **Password**: `admin`
+
+If still getting "HTTPS required" error:
+1. Try: `http://YOUR-EC2-PUBLIC-IP:8080/admin/`
+2. Or use the docker-compose setup instead (see below)
+
+#### **Step 7: Alternative - Using Docker Compose (Recommended for EC2)**
+```bash
+# Create a simple docker-compose file for EC2
+cat > docker-compose.ec2.yml << 'EOF'
+version: '3.8'
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak-ec2
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_PROXY: edge
+    command: start-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  default:
+    name: keycloak-network
+EOF
+
+# Start with docker-compose
+docker-compose -f docker-compose.ec2.yml up -d
+
+# Check status
+docker-compose -f docker-compose.ec2.yml logs -f
+```
+
+## 📧 Email Configuration (SMTP Setup)
+
+🆕 **For Email Verification and Password Reset features to work, you must configure SMTP settings in Keycloak.**
+
+### Method 1: Configure via Keycloak Admin Console (Recommended)
+
+#### Step 1: Access Keycloak Admin Console
+- **URL**: `http://YOUR-EC2-PUBLIC-IP:8080/admin/`
+- **Username**: `admin`
+- **Password**: `admin`
+
+#### Step 2: Configure Realm Email Settings
+1. **Select Your Realm**: Choose your realm from the dropdown (e.g., `petition-pro-realm`)
+2. **Navigate to Email Settings**: Go to `Realm Settings` → `Email` tab
+3. **Configure SMTP Settings**:
+
+```
+Template Settings:
+✅ From Display Name: "Your App Name" 
+✅ From: "noreply@yourapp.com"
+✅ Reply To: "support@yourapp.com"
+
+Connection & Authentication:
+✅ Host: smtp.gmail.com (for Gmail)
+✅ Port: 587 (for TLS) or 465 (for SSL)
+✅ Encryption: Enable TLS or SSL
+✅ Authentication: Enable
+✅ Username: your-email@gmail.com
+✅ Password: your-app-password or OAuth token
+```
+
+#### Step 3: Popular SMTP Configurations
+
+**Gmail Configuration:**
+```
+Host: smtp.gmail.com
+Port: 587
+Encryption: TLS
+Authentication: Enabled
+Username: your-gmail@gmail.com
+Password: your-app-password (not regular password!)
+```
+
+**SendGrid Configuration:**
+```
+Host: smtp.sendgrid.net
+Port: 587
+Encryption: TLS
+Authentication: Enabled
+Username: apikey
+Password: SG.your-sendgrid-api-key
+```
+
+**AWS SES Configuration:**
+```
+Host: email-smtp.us-east-1.amazonaws.com
+Port: 587
+Encryption: TLS
+Authentication: Enabled
+Username: your-ses-username
+Password: your-ses-password
+```
+
+#### Step 4: Test Email Configuration
+1. Click **Test connection** button in Keycloak
+2. If successful, test with the API:
+
+```bash
+# Test email verification
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/auth/send-verification-email" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: your-client-id" \
+  -H "X-Client-Secret: your-client-secret" \
+  -H "X-Realm: your-realm" \
+  -d '{"username_or_email": "test@yourapp.com"}'
+```
+
+### Method 2: Configure via Keycloak API (Advanced)
+
+```bash
+# Configure SMTP settings programmatically
+curl -X PUT "http://YOUR-EC2-PUBLIC-IP:8080/admin/realms/your-realm" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "smtpServer": {
+      "host": "smtp.gmail.com",
+      "port": "587",
+      "from": "noreply@yourapp.com",
+      "fromDisplayName": "Your App Name",
+      "replyTo": "support@yourapp.com",
+      "starttls": "true",
+      "auth": "true",
+      "user": "your-email@gmail.com",
+      "password": "your-app-password"
+    }
+  }'
+```
+
+### 🔐 Gmail App Password Setup (If Using Gmail)
+
+**⚠️ Important**: Regular Gmail passwords won't work. You need an "App Password".
+
+#### Steps to Generate Gmail App Password:
+1. **Enable 2FA**: Go to Google Account settings and enable 2-Factor Authentication
+2. **Generate App Password**: 
+   - Go to Google Account → Security → App passwords
+   - Select "Mail" and "Other (custom name)"
+   - Enter "Keycloak SMTP" as the name
+   - Copy the generated 16-character password
+3. **Use App Password**: Use this password in Keycloak SMTP configuration
+
+### 🚨 Common SMTP Issues & Solutions
+
+#### Issue: "Authentication failed"
+**Solutions:**
+- ✅ Use app-specific passwords (Gmail, Outlook)
+- ✅ Enable "Less secure apps" (not recommended for production)
+- ✅ Use OAuth2 authentication
+- ✅ Check firewall/security groups allow SMTP ports
+
+#### Issue: "Connection timeout"
+**Solutions:**
+- ✅ Check SMTP port (587 for TLS, 465 for SSL, 25 for plain)
+- ✅ Verify host address
+- ✅ Check if your server blocks outbound SMTP
+
+#### Issue: "SSL/TLS certificate issues"
+**Solutions:**
+- ✅ Use correct encryption setting (TLS/SSL)
+- ✅ Try different ports (587, 465, 25)
+- ✅ Enable/disable SSL certificate verification
+
+### 📋 Email Configuration Checklist
+
+**Before Testing Email Features:**
+- [ ] SMTP server configured in Keycloak
+- [ ] Email templates exist (Keycloak includes defaults)
+- [ ] Realm settings: "Verify Email" enabled (for verification emails)
+- [ ] Realm settings: "Forgot Password" enabled (for reset emails)
+- [ ] Test connection successful in Keycloak admin console
+- [ ] Firewall allows outbound SMTP traffic
+- [ ] Valid from/reply-to email addresses configured
+
+**Email Feature Status Check:**
+```bash
+# Check realm email configuration
+curl -X POST "http://YOUR-EC2-PUBLIC-IP:8000/admin/realms/info" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "your-realm",
+    "admin_username": "admin", 
+    "admin_password": "admin"
+  }'
+
+# Look for these in the response:
+# - "verifyEmail": true
+# - "resetPasswordAllowed": true  
+# - "registrationEmailAsUsername": true
 ```
 
 ### Environment Variables
@@ -588,7 +943,7 @@ const keycloakConfig = {
 #### Step 4: Test User Authentication
 
 ```bash
-# Register a new user
+# Register a new user with automatic email verification
 curl -X POST "https://your-auth-service.com/auth/register" \
   -H "Content-Type: application/json" \
   -H "X-Client-Id: mycompany-frontend" \
@@ -599,8 +954,30 @@ curl -X POST "https://your-auth-service.com/auth/register" \
     "email": "john@mycompany.com",
     "password": "SecurePass123!",
     "firstName": "John",
-    "lastName": "Doe"
+    "lastName": "Doe",
+    "roles": ["user", "premium-user"],
+    "send_verification_email": true
   }'
+
+# Expected Response includes email verification status:
+{
+  "user_id": "uuid-generated-by-keycloak",
+  "user_details": {...},
+  "role_assignment": {
+    "roles_assigned": ["user", "premium-user"],
+    "role_assignment_errors": []
+  },
+  "email_verification": {
+    "verification_email_sent": true,
+    "verification_required": true,
+    "message": "Registration successful. Please check your email to verify your account."
+  },
+  "next_steps": [
+    "Check your email for verification link",
+    "Click the verification link to activate your account", 
+    "Login using /auth/login after verification"
+  ]
+}
 
 # Login user
 curl -X POST "https://your-auth-service.com/auth/login" \
@@ -612,6 +989,144 @@ curl -X POST "https://your-auth-service.com/auth/login" \
     "username": "john.doe",
     "password": "SecurePass123!"
   }'
+```
+
+#### 🆕 Step 5: SMTP Configuration API (NEW!)
+
+**Configure SMTP settings programmatically without Keycloak admin console:**
+
+```bash
+# Configure Gmail SMTP
+curl -X POST "https://your-auth-service.com/admin/smtp/configure" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "mycompany-prod",
+    "admin_username": "admin",
+    "admin_password": "admin-password",
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "from_email": "noreply@mycompany.com",
+    "from_display_name": "MyCompany",
+    "reply_to": "support@mycompany.com",
+    "auth_enabled": true,
+    "username": "noreply@mycompany.com",
+    "password": "your-gmail-app-password",
+    "starttls": true,
+    "ssl": false
+  }'
+
+# Get current SMTP configuration
+curl -X POST "https://your-auth-service.com/admin/smtp/config" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "mycompany-prod",
+    "admin_username": "admin", 
+    "admin_password": "admin-password"
+  }'
+
+# Test SMTP configuration
+curl -X POST "https://your-auth-service.com/admin/smtp/test" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "realm_name": "mycompany-prod",
+    "admin_username": "admin",
+    "admin_password": "admin-password",
+    "test_email": "test@mycompany.com"
+  }'
+```
+
+**Popular SMTP Configurations:**
+
+```bash
+# SendGrid SMTP
+{
+  "host": "smtp.sendgrid.net",
+  "port": 587,
+  "username": "apikey",
+  "password": "SG.your-sendgrid-api-key",
+  "starttls": true
+}
+
+# AWS SES SMTP
+{
+  "host": "email-smtp.us-east-1.amazonaws.com",
+  "port": 587,
+  "username": "your-ses-username",
+  "password": "your-ses-password", 
+  "starttls": true
+}
+
+# Custom SMTP Server
+{
+  "host": "mail.yourcompany.com",
+  "port": 587,
+  "username": "smtp-user",
+  "password": "smtp-password",
+  "starttls": true
+}
+```
+
+#### 📧 Step 6: Email Verification & Password Reset APIs
+
+```bash
+# Send email verification to a user
+curl -X POST "https://your-auth-service.com/auth/send-verification-email" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: mycompany-frontend" \
+  -H "X-Client-Secret: client-secret-from-step-2" \
+  -H "X-Realm: mycompany-prod" \
+  -d '{
+    "username_or_email": "john@mycompany.com"
+  }'
+
+# Send password reset email
+curl -X POST "https://your-auth-service.com/auth/forgot-password" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: mycompany-frontend" \
+  -H "X-Client-Secret: client-secret-from-step-2" \
+  -H "X-Realm: mycompany-prod" \
+  -d '{
+    "username_or_email": "john@mycompany.com"
+  }'
+
+# Resend verification email
+curl -X POST "https://your-auth-service.com/auth/resend-verification" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: mycompany-frontend" \
+  -H "X-Client-Secret: client-secret-from-step-2" \
+  -H "X-Realm: mycompany-prod" \
+  -d '{
+    "username_or_email": "john@mycompany.com"
+  }'
+```
+
+#### 🎯 Step 7: User Registration with Custom Roles
+
+```bash
+# Register user with custom roles
+curl -X POST "https://your-auth-service.com/auth/register" \
+  -H "Content-Type: application/json" \
+  -H "X-Client-Id: mycompany-frontend" \
+  -H "X-Client-Secret: client-secret-from-step-2" \
+  -H "X-Realm: mycompany-prod" \
+  -d '{
+    "username": "jane.admin",
+    "email": "jane@mycompany.com",
+    "password": "SecurePass123!",
+    "firstName": "Jane",
+    "lastName": "Admin",
+    "roles": ["user", "admin", "moderator"]
+  }'
+
+# Response includes role assignment status
+{
+  "user_id": "uuid-here",
+  "role_assignment": {
+    "roles_requested": ["user", "admin", "moderator"],
+    "roles_assigned": ["user", "admin"],
+    "role_assignment_errors": ["Role 'moderator' not found in realm"]
+  }
+}
 ```
 
 ### 🛡️ **Security Benefits of API-Only Management**

@@ -17,7 +17,10 @@ from app.models.auth import (
     TokenValidationRequest,
     RefreshTokenRequest,
     CodeExchangeRequest,
-    AuthUrlRequest
+    AuthUrlRequest,
+    EmailVerificationRequest,
+    PasswordResetRequest,
+    ResendVerificationEmailRequest
 )
 from app.dependencies import get_client_config
 from app.core.keycloak import keycloak_client, ClientConfig
@@ -93,10 +96,11 @@ async def register(
     client_config: ClientConfig = Depends(get_client_config)
 ):
     """
-    Register new user for a specific client application with automatic role assignment
+    Register new user for a specific client application with automatic role assignment and optional email verification
 
-    🆕 NEW FEATURE: Automatic Role Assignment
-    - Default role: 'user' (can be customized via roles parameter)
+    🆕 NEW FEATURES:
+    - Automatic Role Assignment: Default role 'user' (customizable via roles parameter)
+    - Automatic Email Verification: Sends verification email after successful registration
     - Supports multiple roles: ['user', 'paid-user', 'lawyer', etc.]
     - Roles must exist in the realm before assignment
 
@@ -112,6 +116,13 @@ async def register(
     - firstName: First name (optional)
     - lastName: Last name (optional)
     - roles: List of roles to assign (default: ['user'])
+    - send_verification_email: Whether to automatically send verification email (default: true)
+
+    Flow:
+    1. Create user account in Keycloak
+    2. Assign specified roles
+    3. Send verification email (if enabled and SMTP configured)
+    4. Return registration status with email verification info
     """
     try:
         user_data = {
@@ -120,6 +131,7 @@ async def register(
             "firstName": request.firstName,
             "lastName": request.lastName,
             "enabled": True,
+            "emailVerified": False,  # Set to False initially - user must verify
             "credentials": [{
                 "type": "password",
                 "value": request.password,
@@ -127,11 +139,59 @@ async def register(
             }]
         }
 
+        # Step 1: Create user and assign roles
         result = await keycloak_client.create_user(
             user_data=user_data,
             client_config=client_config,
             roles=request.roles  # Pass roles for automatic assignment
         )
+
+        # Step 2: Attempt to send verification email automatically
+        verification_status = {
+            "verification_email_sent": False,
+            "verification_email_error": None,
+            "verification_required": True
+        }
+
+        # Check if we should send verification email (default: True unless specified otherwise)
+        send_verification = getattr(request, 'send_verification_email', True)
+
+        if send_verification:
+            try:
+                verification_result = await keycloak_client.send_verification_email(
+                    username_or_email=request.email,
+                    client_config=client_config
+                )
+                verification_status.update({
+                    "verification_email_sent": True,
+                    "verification_email_error": None,
+                    "message": "Registration successful. Please check your email to verify your account."
+                })
+                logger.info(
+                    f"✅ Verification email sent automatically to {request.email}")
+
+            except Exception as email_error:
+                # Don't fail registration if email sending fails
+                verification_status.update({
+                    "verification_email_sent": False,
+                    "verification_email_error": str(email_error),
+                    "message": "Registration successful, but verification email could not be sent. You can request it later."
+                })
+                logger.warning(
+                    f"⚠️ Auto-verification email failed for {request.email}: {str(email_error)}")
+
+        # Step 3: Combine results
+        combined_result = {
+            **result,  # User creation and role assignment results
+            "email_verification": verification_status,
+            "next_steps": [
+                "Check your email for verification link" if verification_status[
+                    "verification_email_sent"] else "Request verification email via /auth/send-verification-email",
+                "Click the verification link to activate your account",
+                "Login using /auth/login after verification"
+            ]
+        }
+
         logger.info(
             "✅ User registration successful",
             **log_keycloak_operation(
@@ -139,10 +199,13 @@ async def register(
                 client_id=client_config.client_id,
                 realm=client_config.realm,
                 username=request.username,
-                success=True
+                success=True,
+                extra_info={
+                    "verification_email_sent": verification_status["verification_email_sent"]}
             )
         )
-        return result
+        return combined_result
+
     except HTTPException as he:
         logger.warning(
             "❌ User registration failed",
@@ -292,7 +355,7 @@ async def check_permissions(
     - X-Client-Id: Your application's client ID
     - X-Client-Secret: Your application's client secret
     - X-Realm: Keycloak realm name
-    
+
     Returns information about:
     - Service account availability
     - User management permissions
@@ -300,7 +363,8 @@ async def check_permissions(
     """
     try:
         result = keycloak_client.check_admin_permissions(client_config)
-        logger.info(f"✅ Permissions checked for client {client_config.client_id}")
+        logger.info(
+            f"✅ Permissions checked for client {client_config.client_id}")
         return result
     except Exception as e:
         logger.error(
@@ -399,4 +463,204 @@ async def get_authorization_url(
     except Exception as e:
         logger.error(
             f"❌ Auth URL generation error for client {client_config.client_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/send-verification-email")
+async def send_verification_email(
+    request: EmailVerificationRequest,
+    client_config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Send email verification to a user
+
+    This endpoint triggers Keycloak to send a verification email to the user.
+    The user must click the link in the email to verify their email address.
+
+    Required headers:
+    - X-Client-Id: Your application's client ID
+    - X-Client-Secret: Your application's client secret
+    - X-Realm: Keycloak realm name
+
+    Body Parameters:
+    - username_or_email: Username or email address of the user
+
+    Prerequisites:
+    - Realm must have email verification enabled
+    - SMTP settings must be configured in Keycloak
+    - Email templates must be properly configured
+    """
+    try:
+        result = await keycloak_client.send_verification_email(
+            username_or_email=request.username_or_email,
+            client_config=client_config
+        )
+        logger.info(
+            "✅ Verification email sent successfully",
+            **log_keycloak_operation(
+                operation="send_verification_email",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=True
+            )
+        )
+        return result
+    except HTTPException:
+        logger.warning(
+            "❌ Verification email sending failed",
+            **log_keycloak_operation(
+                operation="send_verification_email",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=False
+            )
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            "❌ Verification email error",
+            **log_keycloak_operation(
+                operation="send_verification_email",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                error=str(e),
+                success=False
+            )
+        )
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: PasswordResetRequest,
+    client_config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Send password reset email to a user
+
+    This endpoint triggers Keycloak to send a password reset email to the user.
+    The user can then click the link to reset their password.
+
+    Required headers:
+    - X-Client-Id: Your application's client ID
+    - X-Client-Secret: Your application's client secret
+    - X-Realm: Keycloak realm name
+
+    Body Parameters:
+    - username_or_email: Username or email address of the user
+
+    Prerequisites:
+    - Realm must have "Forgot Password" enabled in login settings
+    - SMTP settings must be configured in Keycloak
+    - Email templates must be properly configured
+
+    Security Note:
+    - This endpoint will not reveal whether the user exists or not
+    - Always returns success message for security purposes
+    """
+    try:
+        result = await keycloak_client.send_reset_password_email(
+            username_or_email=request.username_or_email,
+            client_config=client_config
+        )
+        logger.info(
+            "✅ Password reset email sent successfully",
+            **log_keycloak_operation(
+                operation="forgot_password",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=True
+            )
+        )
+        return result
+    except HTTPException:
+        logger.warning(
+            "❌ Password reset email sending failed",
+            **log_keycloak_operation(
+                operation="forgot_password",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=False
+            )
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            "❌ Password reset email error",
+            **log_keycloak_operation(
+                operation="forgot_password",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                error=str(e),
+                success=False
+            )
+        )
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/resend-verification")
+async def resend_verification_email(
+    request: ResendVerificationEmailRequest,
+    client_config: ClientConfig = Depends(get_client_config)
+):
+    """
+    Resend verification email to a user
+
+    This endpoint allows users to request another verification email if they
+    didn't receive the first one or if it expired.
+
+    Required headers:
+    - X-Client-Id: Your application's client ID
+    - X-Client-Secret: Your application's client secret
+    - X-Realm: Keycloak realm name
+
+    Body Parameters:
+    - username_or_email: Username or email address of the user
+    """
+    try:
+        result = await keycloak_client.send_verification_email(
+            username_or_email=request.username_or_email,
+            client_config=client_config
+        )
+        logger.info(
+            "✅ Verification email resent successfully",
+            **log_keycloak_operation(
+                operation="resend_verification",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=True
+            )
+        )
+        return result
+    except HTTPException:
+        logger.warning(
+            "❌ Verification email resend failed",
+            **log_keycloak_operation(
+                operation="resend_verification",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                success=False
+            )
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            "❌ Verification email resend error",
+            **log_keycloak_operation(
+                operation="resend_verification",
+                client_id=client_config.client_id,
+                realm=client_config.realm,
+                username=request.username_or_email,
+                error=str(e),
+                success=False
+            )
+        )
         raise HTTPException(status_code=500, detail="Internal server error")

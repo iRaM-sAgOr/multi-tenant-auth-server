@@ -1628,6 +1628,515 @@ class MultiTenantKeycloakClient:
                 }
             )
 
+    async def send_verification_email(self, username_or_email: str, client_config: ClientConfig) -> Dict[str, Any]:
+        """
+        Send email verification to a user.
+
+        Args:
+            username_or_email: Username or email address
+            client_config: Client configuration
+
+        Returns:
+            Dict containing verification status
+
+        Raises:
+            HTTPException: If verification email sending fails
+        """
+        keycloak_admin = self._get_admin_client(client_config)
+
+        if not keycloak_admin:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Email verification service unavailable",
+                    "message": f"Admin access not configured for client {client_config.client_id}",
+                    "solutions": [
+                        "Configure admin credentials or service account",
+                        "Ensure email verification is enabled in realm settings"
+                    ]
+                }
+            )
+
+        try:
+            # Find user by username or email
+            users = keycloak_admin.get_users({
+                "username": username_or_email
+            }) or keycloak_admin.get_users({
+                "email": username_or_email
+            })
+
+            if not users:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+
+            user_id = users[0]["id"]
+            user = users[0]
+
+            # Send verification email
+            keycloak_admin.send_verify_email(user_id)
+
+            logger.info(
+                f"✅ Verification email sent to user {username_or_email}")
+
+            return {
+                "message": "Verification email sent successfully",
+                "user_id": user_id,
+                "email": user.get("email"),
+                "email_verified": user.get("emailVerified", False),
+                "client_info": {
+                    "client_id": client_config.client_id,
+                    "realm": client_config.realm
+                }
+            }
+
+        except HTTPException:
+            raise
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to send verification email to {username_or_email}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to send verification email",
+                    "message": "Could not send verification email. Check realm email settings.",
+                    "keycloak_error": error_str,
+                    "solutions": [
+                        "Configure SMTP settings in Keycloak realm",
+                        "Verify email templates are configured",
+                        "Check if user email address is valid"
+                    ]
+                }
+            )
+
+    async def send_reset_password_email(self, username_or_email: str, client_config: ClientConfig) -> Dict[str, Any]:
+        """
+        Send password reset email to a user.
+
+        Args:
+            username_or_email: Username or email address
+            client_config: Client configuration
+
+        Returns:
+            Dict containing reset email status
+
+        Raises:
+            HTTPException: If password reset email sending fails
+        """
+        keycloak_admin = self._get_admin_client(client_config)
+
+        if not keycloak_admin:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Password reset service unavailable",
+                    "message": f"Admin access not configured for client {client_config.client_id}",
+                    "solutions": [
+                        "Configure admin credentials or service account",
+                        "Ensure password reset is enabled in realm settings"
+                    ]
+                }
+            )
+
+        try:
+            # Find user by username or email
+            users = keycloak_admin.get_users({
+                "username": username_or_email
+            }) or keycloak_admin.get_users({
+                "email": username_or_email
+            })
+
+            if not users:
+                # For security reasons, don't reveal if user exists or not
+                return {
+                    "message": "If the user exists, a password reset email has been sent",
+                    "client_info": {
+                        "client_id": client_config.client_id,
+                        "realm": client_config.realm
+                    }
+                }
+
+            user_id = users[0]["id"]
+            user = users[0]
+
+            # Send password reset email
+            keycloak_admin.send_update_account(
+                user_id=user_id,
+                payload=["UPDATE_PASSWORD"]
+            )
+
+            logger.info(
+                f"✅ Password reset email sent to user {username_or_email}")
+
+            return {
+                "message": "Password reset email sent successfully",
+                "user_id": user_id,
+                "email": user.get("email"),
+                "client_info": {
+                    "client_id": client_config.client_id,
+                    "realm": client_config.realm
+                }
+            }
+
+        except HTTPException:
+            raise
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to send password reset email to {username_or_email}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to send password reset email",
+                    "message": "Could not send password reset email. Check realm email settings.",
+                    "keycloak_error": error_str,
+                    "solutions": [
+                        "Configure SMTP settings in Keycloak realm",
+                        "Verify email templates are configured",
+                        "Enable 'Forgot Password' in realm login settings"
+                    ]
+                }
+            )
+
+    async def update_user_password(self, user_id: str, new_password: str, client_config: ClientConfig, temporary: bool = False) -> Dict[str, Any]:
+        """
+        Update user password (for admin operations).
+
+        Args:
+            user_id: User ID in Keycloak
+            new_password: New password to set
+            client_config: Client configuration
+            temporary: Whether password is temporary (user must change on next login)
+
+        Returns:
+            Dict containing password update status
+
+        Raises:
+            HTTPException: If password update fails
+        """
+        keycloak_admin = self._get_admin_client(client_config)
+
+        if not keycloak_admin:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "Password update service unavailable",
+                    "message": f"Admin access not configured for client {client_config.client_id}"
+                }
+            )
+
+        try:
+            # Set new password
+            keycloak_admin.set_user_password(
+                user_id=user_id,
+                password=new_password,
+                temporary=temporary
+            )
+
+            logger.info(f"✅ Password updated for user {user_id}")
+
+            return {
+                "message": "Password updated successfully",
+                "user_id": user_id,
+                "temporary": temporary,
+                "client_info": {
+                    "client_id": client_config.client_id,
+                    "realm": client_config.realm
+                }
+            }
+
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to update password for user {user_id}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to update password",
+                    "message": "Could not update user password",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def configure_smtp(self, smtp_config: Dict[str, Any], realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Configure SMTP settings for a Keycloak realm.
+
+        Args:
+            smtp_config: Dictionary containing SMTP configuration
+            realm_name: Name of the realm to configure
+            admin_username: Admin username for authentication
+            admin_password: Admin password for authentication
+
+        Returns:
+            Dict containing configuration status
+
+        Raises:
+            HTTPException: If SMTP configuration fails
+        """
+        try:
+            # Create admin client for this specific operation
+            admin_client = KeycloakAdmin(
+                server_url=settings.keycloak_server_url,
+                username=admin_username,
+                password=admin_password,
+                realm_name="master",  # Admin operations are done from master realm
+                verify=True
+            )
+
+            # Get current realm configuration
+            realm_config = admin_client.get_realm(realm_name)
+
+            # Update SMTP server configuration
+            realm_config["smtpServer"] = {
+                "host": smtp_config["host"],
+                "port": str(smtp_config["port"]),
+                "from": smtp_config["from_email"],
+                "fromDisplayName": smtp_config.get("from_display_name", ""),
+                "replyTo": smtp_config.get("reply_to", ""),
+                "starttls": str(smtp_config.get("starttls", True)).lower(),
+                "ssl": str(smtp_config.get("ssl", False)).lower(),
+                "auth": str(smtp_config.get("auth_enabled", True)).lower(),
+                "user": smtp_config.get("username", ""),
+                "password": smtp_config.get("password", ""),
+                "envelopeFrom": smtp_config.get("envelope_from", "")
+            }
+
+            # Update the realm
+            admin_client.update_realm(realm_name, realm_config)
+
+            logger.info(f"✅ SMTP configuration updated for realm {realm_name}")
+
+            return {
+                "message": "SMTP configuration updated successfully",
+                "realm_name": realm_name,
+                "smtp_host": smtp_config["host"],
+                "smtp_port": smtp_config["port"],
+                "from_email": smtp_config["from_email"],
+                "auth_enabled": smtp_config.get("auth_enabled", True),
+                "starttls": smtp_config.get("starttls", True),
+                "ssl": smtp_config.get("ssl", False),
+                "status": "configured"
+            }
+
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to configure SMTP for realm {realm_name}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to configure SMTP settings",
+                    "message": f"Could not update SMTP configuration for realm '{realm_name}'",
+                    "keycloak_error": error_str,
+                    "solutions": [
+                        "Verify admin credentials are correct",
+                        "Ensure the realm exists",
+                        "Check SMTP server details are valid",
+                        "Verify network connectivity to SMTP server"
+                    ]
+                }
+            )
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Unexpected error configuring SMTP for realm {realm_name}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "SMTP configuration error",
+                    "message": "Unexpected error during SMTP configuration",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def get_smtp_config(self, realm_name: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Get current SMTP configuration for a Keycloak realm.
+
+        Args:
+            realm_name: Name of the realm
+            admin_username: Admin username for authentication
+            admin_password: Admin password for authentication
+
+        Returns:
+            Dict containing current SMTP configuration
+
+        Raises:
+            HTTPException: If retrieval fails
+        """
+        try:
+            # Create admin client
+            admin_client = KeycloakAdmin(
+                server_url=settings.keycloak_server_url,
+                username=admin_username,
+                password=admin_password,
+                realm_name="master",
+                verify=True
+            )
+
+            # Get realm configuration
+            realm_config = admin_client.get_realm(realm_name)
+            smtp_server = realm_config.get("smtpServer", {})
+
+            # Format response (hide sensitive data)
+            smtp_config = {
+                "realm_name": realm_name,
+                "smtp_configured": bool(smtp_server),
+                "host": smtp_server.get("host", ""),
+                "port": int(smtp_server.get("port", 587)) if smtp_server.get("port") else 587,
+                "from_email": smtp_server.get("from", ""),
+                "from_display_name": smtp_server.get("fromDisplayName", ""),
+                "reply_to": smtp_server.get("replyTo", ""),
+                "auth_enabled": smtp_server.get("auth", "true").lower() == "true",
+                "starttls": smtp_server.get("starttls", "true").lower() == "true",
+                "ssl": smtp_server.get("ssl", "false").lower() == "true",
+                "username": smtp_server.get("user", ""),
+                # Don't return actual password
+                "password_configured": bool(smtp_server.get("password")),
+                "envelope_from": smtp_server.get("envelopeFrom", "")
+            }
+
+            logger.info(
+                f"✅ Retrieved SMTP configuration for realm {realm_name}")
+
+            return smtp_config
+
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"Failed to get SMTP config for realm {realm_name}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Failed to retrieve SMTP configuration",
+                    "message": f"Could not get SMTP configuration for realm '{realm_name}'",
+                    "keycloak_error": error_str
+                }
+            )
+
+    async def test_smtp_connection(self, realm_name: str, test_email: str, admin_username: str, admin_password: str) -> Dict[str, Any]:
+        """
+        Test SMTP configuration by sending a test email.
+
+        Args:
+            realm_name: Name of the realm
+            test_email: Email address to send test email to
+            admin_username: Admin username for authentication
+            admin_password: Admin password for authentication
+
+        Returns:
+            Dict containing test results
+
+        Raises:
+            HTTPException: If test fails
+        """
+        try:
+            # Create admin client
+            admin_client = KeycloakAdmin(
+                server_url=settings.keycloak_server_url,
+                username=admin_username,
+                password=admin_password,
+                realm_name="master",
+                verify=True
+            )
+
+            # Get realm configuration to check if SMTP is configured
+            realm_config = admin_client.get_realm(realm_name)
+            smtp_server = realm_config.get("smtpServer", {})
+
+            if not smtp_server:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "SMTP not configured",
+                        "message": f"No SMTP configuration found for realm '{realm_name}'",
+                        "solutions": [
+                            "Configure SMTP settings first using /admin/smtp/configure",
+                            "Verify realm name is correct"
+                        ]
+                    }
+                )
+
+            # Test SMTP by sending a test email using Keycloak's admin API
+            # Note: Keycloak doesn't have a direct "test SMTP" endpoint, but we can
+            # create a temporary user and send them a verification email as a test
+
+            test_user_data = {
+                "username": f"smtp-test-{int(asyncio.get_event_loop().time())}",
+                "email": test_email,
+                "enabled": True,
+                "temporary": True,  # Mark as temporary
+                "emailVerified": False
+            }
+
+            # Create temporary test user
+            temp_user_id = admin_client.create_user(test_user_data)
+
+            try:
+                # Try to send verification email to test SMTP
+                admin_client.send_verify_email(user_id=temp_user_id)
+
+                # If we get here, email sending worked
+                result = {
+                    "message": "SMTP test successful",
+                    "realm_name": realm_name,
+                    "test_email": test_email,
+                    "smtp_host": smtp_server.get("host"),
+                    "smtp_port": smtp_server.get("port"),
+                    "test_status": "passed",
+                    "details": "Test verification email sent successfully"
+                }
+
+                logger.info(f"✅ SMTP test passed for realm {realm_name}")
+
+            finally:
+                # Clean up: delete the temporary test user
+                try:
+                    admin_client.delete_user(user_id=temp_user_id)
+                except:
+                    logger.warning(
+                        f"Could not delete temporary test user {temp_user_id}")
+
+            return result
+
+        except HTTPException:
+            raise
+        except KeycloakError as e:
+            error_str = str(e)
+            logger.error(
+                f"SMTP test failed for realm {realm_name}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "SMTP test failed",
+                    "message": f"SMTP test failed for realm '{realm_name}'",
+                    "keycloak_error": error_str,
+                    "test_status": "failed",
+                    "solutions": [
+                        "Verify SMTP server settings are correct",
+                        "Check SMTP server credentials",
+                        "Ensure network connectivity to SMTP server",
+                        "Check firewall settings for SMTP ports"
+                    ]
+                }
+            )
+        except Exception as e:
+            error_str = str(e)
+            logger.error(
+                f"Unexpected error during SMTP test for realm {realm_name}: {error_str}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "SMTP test error",
+                    "message": "Unexpected error during SMTP test",
+                    "keycloak_error": error_str,
+                    "test_status": "error"
+                }
+            )
+
 
 # Global Multi-Tenant Keycloak client instance
 keycloak_client = MultiTenantKeycloakClient()

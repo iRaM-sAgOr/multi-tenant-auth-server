@@ -18,6 +18,7 @@ from app.routes.health import router as health_router
 from app.routes.info import router as info_router
 from app.routes.console import router as console_router
 from app.routes.admin import router as admin_router
+from app.routes.smtp_admin import router as smtp_admin_router
 from app.exceptions import internal_server_error_handler
 from app.middleware import setup_security_middleware
 
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(console_router)
     app.include_router(admin_router)
+    app.include_router(smtp_admin_router)
 
     # Add exception handlers
     app.add_exception_handler(500, internal_server_error_handler)

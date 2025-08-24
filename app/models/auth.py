@@ -23,6 +23,8 @@ class RegisterRequest(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
     roles: Optional[List[str]] = ["user"]  # Default role assignment
+    # Auto-send verification email
+    send_verification_email: Optional[bool] = True
 
 
 class TokenValidationRequest(BaseModel):
@@ -70,7 +72,8 @@ class CreateClientRequest(BaseModel):
     realm_name: str
     redirect_uris: List[str] = ["http://localhost:3000/*"]
     web_origins: List[str] = ["http://localhost:3000"]
-    service_accounts_enabled: bool = False  # Enable service account for programmatic access
+    # Enable service account for programmatic access
+    service_accounts_enabled: bool = False
     admin_username: str
     admin_password: str
 
@@ -141,6 +144,69 @@ class RegistrationStatusResponse(BaseModel):
     admin_access: bool
     permissions: Dict[str, Any]
     setup_required: Optional[Dict[str, Any]] = None
+
+
+class EmailVerificationRequest(BaseModel):
+    """Request model for sending email verification"""
+    username_or_email: str
+
+
+class PasswordResetRequest(BaseModel):
+    """Request model for initiating password reset"""
+    username_or_email: str
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """Request model for confirming password reset with new password"""
+    username: str
+    reset_token: str
+    new_password: str
+
+
+class ResendVerificationEmailRequest(BaseModel):
+    """Request model for resending verification email"""
+    username_or_email: str
+
+
+class SMTPConfigRequest(BaseModel):
+    """Request model for configuring SMTP settings"""
+    realm_name: str
+    admin_username: str
+    admin_password: str
+
+    # SMTP Server Settings
+    host: str
+    port: int = 587
+    from_email: str
+    from_display_name: Optional[str] = None
+    reply_to: Optional[str] = None
+
+    # Authentication Settings
+    auth_enabled: bool = True
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+    # Encryption Settings
+    starttls: bool = True
+    ssl: bool = False
+
+    # Additional Settings
+    envelope_from: Optional[str] = None
+
+
+class SMTPTestRequest(BaseModel):
+    """Request model for testing SMTP configuration"""
+    realm_name: str
+    admin_username: str
+    admin_password: str
+    test_email: str
+
+
+class GetSMTPConfigRequest(BaseModel):
+    """Request model for retrieving SMTP configuration"""
+    realm_name: str
+    admin_username: str
+    admin_password: str
 
 
 class ErrorResponse(BaseModel):
