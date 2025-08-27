@@ -216,3 +216,49 @@ class ErrorResponse(BaseModel):
     keycloak_error: Optional[str] = None
     solutions: Optional[List[str]] = None
     client_info: Optional[Dict[str, str]] = None
+
+
+class AuthErrorCode:
+    """Standardized error codes for authentication operations"""
+    # User creation errors
+    INVALID_PASSWORD = "INVALID_PASSWORD"
+    USER_ALREADY_EXISTS = "USER_ALREADY_EXISTS"
+    INVALID_EMAIL = "INVALID_EMAIL"
+    INVALID_USERNAME = "INVALID_USERNAME"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    
+    # Authentication errors
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
+    ACCOUNT_DISABLED = "ACCOUNT_DISABLED"
+    EMAIL_NOT_VERIFIED = "EMAIL_NOT_VERIFIED"
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
+    
+    # Token errors
+    INVALID_TOKEN = "INVALID_TOKEN"
+    TOKEN_EXPIRED = "TOKEN_EXPIRED"
+    INVALID_REFRESH_TOKEN = "INVALID_REFRESH_TOKEN"
+    
+    # Client/Realm errors
+    CLIENT_NOT_FOUND = "CLIENT_NOT_FOUND"
+    REALM_NOT_FOUND = "REALM_NOT_FOUND"
+    INVALID_CLIENT_CREDENTIALS = "INVALID_CLIENT_CREDENTIALS"
+    
+    # System errors
+    KEYCLOAK_UNAVAILABLE = "KEYCLOAK_UNAVAILABLE"
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
+    SMTP_NOT_CONFIGURED = "SMTP_NOT_CONFIGURED"
+
+
+class StandardizedErrorResponse(BaseModel):
+    """Simplified standardized error response for authentication operations"""
+    success: bool = False
+    message: str  # Detailed error message for users
+    operation: str  # Operation that failed (login, register, etc.)
+    suggestions: List[str]  # Actionable suggestions to resolve the error
+
+
+class PasswordRequirement(BaseModel):
+    """Password requirement details"""
+    requirement: str
+    description: str
+    current_status: str  # "met" or "not_met"

@@ -41,6 +41,7 @@ from jose import jwt, JWTError
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.utils.error_handler import AuthErrorHandler
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -364,9 +365,13 @@ class MultiTenantKeycloakClient:
         except KeycloakError as e:
             logger.warning(
                 f"Authentication failed for user {username} in client {client_config.client_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password"
+            
+            # Use standardized error handler
+            raise AuthErrorHandler.handle_keycloak_error(
+                keycloak_error=str(e),
+                operation="login",
+                client_id=client_config.client_id,
+                realm=client_config.realm
             )
         except Exception as e:
             logger.error(
@@ -411,9 +416,13 @@ class MultiTenantKeycloakClient:
         except KeycloakError as e:
             logger.warning(
                 f"Token refresh failed for client {client_config.client_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired refresh token"
+            
+            # Use standardized error handler
+            raise AuthErrorHandler.handle_keycloak_error(
+                keycloak_error=str(e),
+                operation="refresh_token",
+                client_id=client_config.client_id,
+                realm=client_config.realm
             )
 
     async def validate_token(self, token: str, client_config: ClientConfig) -> Dict[str, Any]:
@@ -467,17 +476,49 @@ class MultiTenantKeycloakClient:
         except KeycloakError as e:
             logger.warning(
                 f"Token validation failed for client {client_config.client_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token"
+            
+            # Use standardized error handler
+            raise AuthErrorHandler.handle_keycloak_error(
+                keycloak_error=str(e),
+                operation="validate_token",
+                client_id=client_config.client_id,
+                realm=client_config.realm
             )
         except Exception as e:
             logger.error(
                 f"Unexpected error during token validation for client {client_config.client_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Token validation service error"
-            )
+            
+            # Classify the error type based on the exception
+            error_str = str(e).lower()
+            
+            if any(token_error in error_str for token_error in [
+                "jwt", "token", "expired", "invalid", "malformed", "decode"
+            ]):
+                # Token-related errors should be 401 Unauthorized
+                raise AuthErrorHandler.create_simplified_error(
+                    message="Invalid or expired token",
+                    operation="validate_token", 
+                    suggestions=["Check if the token format is correct", "Try refreshing your token"],
+                    status_code=status.HTTP_401_UNAUTHORIZED
+                )
+            elif any(network_error in error_str for network_error in [
+                "connection", "timeout", "network", "unreachable"
+            ]):
+                # Network/connectivity issues should be 503 Service Unavailable
+                raise AuthErrorHandler.create_simplified_error(
+                    message="Authentication service temporarily unavailable",
+                    operation="validate_token",
+                    suggestions=["Try again in a few moments", "Contact support if the issue persists"],
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            else:
+                # Unknown/unexpected errors should be 500 Internal Server Error
+                raise AuthErrorHandler.create_simplified_error(
+                    message="Token validation failed due to an unexpected error",
+                    operation="validate_token",
+                    suggestions=["Try again later", "Contact support if the issue persists"],
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
     async def logout_user(self, refresh_token: str, client_config: ClientConfig) -> bool:
         """
@@ -602,58 +643,13 @@ class MultiTenantKeycloakClient:
             logger.error(
                 f"User creation failed for client {client_config.client_id}: {error_str}")
 
-            # Handle specific error cases
-            if "403" in error_str or "Forbidden" in error_str:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail={
-                        "error": "Permission denied for user creation",
-                        "message": f"The service account for client '{client_config.client_id}' lacks permission to create users",
-                        "keycloak_error": error_str,
-                        "solutions": [
-                            f"Go to Keycloak Admin Console → Clients → '{client_config.client_id}' → Service Account Roles",
-                            "Add the following roles to the service account:",
-                            "  - realm-admin (for full realm management)",
-                            "  - manage-users (for user management only)",
-                            "  - create-client (if creating client-specific roles)",
-                            "Alternative: Enable 'Service Accounts' and configure proper role mappings",
-                            "Or provide admin credentials via KEYCLOAK_ADMIN_USERNAME and KEYCLOAK_ADMIN_PASSWORD"
-                        ],
-                        "client_info": {
-                            "client_id": client_config.client_id,
-                            "realm": client_config.realm,
-                            "server_url": client_config.server_url
-                        }
-                    }
-                )
-            elif "409" in error_str or "exists" in error_str.lower():
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "error": "User already exists",
-                        "message": "A user with this username or email already exists",
-                        "keycloak_error": error_str,
-                        "solutions": [
-                            "Choose a different username",
-                            "Check if the email is already registered",
-                            "Use the login endpoint instead of registration"
-                        ]
-                    }
-                )
-            else:
-                # Generic error handling
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "User creation failed",
-                        "message": f"Failed to create user in Keycloak",
-                        "keycloak_error": error_str,
-                        "client_info": {
-                            "client_id": client_config.client_id,
-                            "realm": client_config.realm
-                        }
-                    }
-                )
+            # Use standardized error handler
+            raise AuthErrorHandler.handle_keycloak_error(
+                keycloak_error=error_str,
+                operation="register",
+                client_id=client_config.client_id,
+                realm=client_config.realm
+            )
 
     async def get_user_roles(self, user_id: str, client_config: ClientConfig) -> List[str]:
         """

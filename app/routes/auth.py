@@ -25,6 +25,8 @@ from app.models.auth import (
 from app.dependencies import get_client_config
 from app.core.keycloak_client import keycloak_client, ClientConfig
 from app.core.logging import get_structured_logger, log_keycloak_operation
+from app.utils.error_handler import create_success_response, AuthErrorHandler
+from app.utils.route_error_handler import handle_auth_operation
 
 # Get structured logger
 logger = get_structured_logger(__name__)
@@ -34,6 +36,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login")
+@handle_auth_operation("login")
 async def login(
     request: LoginRequest,
     client_config: ClientConfig = Depends(get_client_config)
@@ -46,51 +49,28 @@ async def login(
     - X-Client-Secret: Your application's client secret
     - X-Realm: Keycloak realm name
     """
-    try:
-        result = await keycloak_client.authenticate_user(
+    result = await keycloak_client.authenticate_user(
+        username=request.username,
+        password=request.password,
+        client_config=client_config
+    )
+    
+    logger.info(
+        "✅ User login successful",
+        **log_keycloak_operation(
+            operation="login",
+            client_id=client_config.client_id,
+            realm=client_config.realm,
             username=request.username,
-            password=request.password,
-            client_config=client_config
+            success=True
         )
-        logger.info(
-            "✅ User login successful",
-            **log_keycloak_operation(
-                operation="login",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                success=True
-            )
-        )
-        return result
-    except HTTPException:
-        logger.warning(
-            "❌ User login failed",
-            **log_keycloak_operation(
-                operation="login",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                success=False
-            )
-        )
-        raise
-    except Exception as e:
-        logger.error(
-            "❌ Login error",
-            **log_keycloak_operation(
-                operation="login",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                error=str(e),
-                success=False
-            )
-        )
-        raise HTTPException(status_code=500, detail="Internal server error")
+    )
+    
+    return result
 
 
 @router.post("/register")
+@handle_auth_operation("register")
 async def register(
     request: RegisterRequest,
     client_config: ClientConfig = Depends(get_client_config)
@@ -124,117 +104,96 @@ async def register(
     3. Send verification email (if enabled and SMTP configured)
     4. Return registration status with email verification info
     """
-    try:
-        user_data = {
-            "username": request.username,
-            "email": request.email,
-            "firstName": request.firstName,
-            "lastName": request.lastName,
-            "enabled": True,
-            "emailVerified": False,  # Set to False initially - user must verify
-            "credentials": [{
-                "type": "password",
-                "value": request.password,
-                "temporary": False
-            }]
-        }
+    user_data = {
+        "username": request.username,
+        "email": request.email,
+        "firstName": request.firstName,
+        "lastName": request.lastName,
+        "enabled": True,
+        "emailVerified": False,  # Set to False initially - user must verify
+        "credentials": [{
+            "type": "password",
+            "value": request.password,
+            "temporary": False
+        }]
+    }
 
-        # Step 1: Create user and assign roles
-        result = await keycloak_client.create_user(
-            user_data=user_data,
-            client_config=client_config,
-            roles=request.roles  # Pass roles for automatic assignment
-        )
+    # Step 1: Create user and assign roles
+    result = await keycloak_client.create_user(
+        user_data=user_data,
+        client_config=client_config,
+        roles=request.roles  # Pass roles for automatic assignment
+    )
 
-        # Step 2: Attempt to send verification email automatically
-        verification_status = {
-            "verification_email_sent": False,
-            "verification_email_error": None,
-            "verification_required": True
-        }
+    # Step 2: Attempt to send verification email automatically
+    verification_status = {
+        "verification_email_sent": False,
+        "verification_email_error": None,
+        "verification_required": True
+    }
 
-        # Check if we should send verification email (default: True unless specified otherwise)
-        send_verification = getattr(request, 'send_verification_email', True)
+    # Check if we should send verification email (default: True unless specified otherwise)
+    send_verification = getattr(request, 'send_verification_email', True)
 
-        if send_verification:
-            try:
-                verification_result = await keycloak_client.send_verification_email(
-                    username_or_email=request.email,
-                    client_config=client_config
-                )
-                verification_status.update({
-                    "verification_email_sent": True,
-                    "verification_email_error": None,
-                    "message": "Registration successful. Please check your email to verify your account."
-                })
-                logger.info(
-                    f"✅ Verification email sent automatically to {request.email}")
-
-            except Exception as email_error:
-                # Don't fail registration if email sending fails
-                verification_status.update({
-                    "verification_email_sent": False,
-                    "verification_email_error": str(email_error),
-                    "message": "Registration successful, but verification email could not be sent. You can request it later."
-                })
-                logger.warning(
-                    f"⚠️ Auto-verification email failed for {request.email}: {str(email_error)}")
-
-        # Step 3: Combine results
-        combined_result = {
-            **result,  # User creation and role assignment results
-            "email_verification": verification_status,
-            "next_steps": [
-                "Check your email for verification link" if verification_status[
-                    "verification_email_sent"] else "Request verification email via /auth/send-verification-email",
-                "Click the verification link to activate your account",
-                "Login using /auth/login after verification"
-            ]
-        }
-
-        logger.info(
-            "✅ User registration successful",
-            **log_keycloak_operation(
-                operation="register",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                success=True,
-                extra_info={
-                    "verification_email_sent": verification_status["verification_email_sent"]}
+    if send_verification:
+        try:
+            verification_result = await keycloak_client.send_verification_email(
+                username_or_email=request.email,
+                client_config=client_config
             )
-        )
-        return combined_result
+            verification_status.update({
+                "verification_email_sent": True,
+                "verification_email_error": None,
+                "message": "Registration successful. Please check your email to verify your account."
+            })
+            logger.info(
+                f"✅ Verification email sent automatically to {request.email}")
 
-    except HTTPException as he:
-        logger.warning(
-            "❌ User registration failed",
-            **log_keycloak_operation(
-                operation="register",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                error=str(he.detail),
-                success=False
-            )
+        except Exception as email_error:
+            # Don't fail registration if email sending fails
+            verification_status.update({
+                "verification_email_sent": False,
+                "verification_email_error": str(email_error),
+                "message": "Registration successful, but verification email could not be sent. You can request it later."
+            })
+            logger.warning(
+                f"⚠️ Auto-verification email failed for {request.email}: {str(email_error)}")
+
+    # Step 3: Combine results
+    combined_result = {
+        **result,  # User creation and role assignment results
+        "email_verification": verification_status,
+        "next_steps": [
+            "Check your email for verification link" if verification_status[
+                "verification_email_sent"] else "Request verification email via /auth/send-verification-email",
+            "Click the verification link to activate your account",
+            "Login using /auth/login after verification"
+        ]
+    }
+
+    logger.info(
+        "✅ User registration successful",
+        **log_keycloak_operation(
+            operation="register",
+            client_id=client_config.client_id,
+            realm=client_config.realm,
+            username=request.username,
+            success=True,
+            extra_info={
+                "verification_email_sent": verification_status["verification_email_sent"]}
         )
-        raise
-    except Exception as e:
-        logger.error(
-            "❌ Registration error",
-            **log_keycloak_operation(
-                operation="register",
-                client_id=client_config.client_id,
-                realm=client_config.realm,
-                username=request.username,
-                error=str(e),
-                success=False
-            )
-        )
-        raise HTTPException(status_code=500, detail="Internal server error")
+    )
+    
+    # Return custom success message based on email verification status
+    return create_success_response(
+        message="Registration successful. Please check your email to verify your account." if verification_status["verification_email_sent"] else "Registration successful. You can request verification email later.",
+        data=combined_result,
+        operation="register"
+    )
 
 
 @router.post("/validate")
+@handle_auth_operation("validate_token")
 async def validate_token(
     request: TokenValidationRequest,
     client_config: ClientConfig = Depends(get_client_config)
@@ -250,23 +209,17 @@ async def validate_token(
     - X-Client-Secret: Your application's client secret
     - X-Realm: Keycloak realm name
     """
-    try:
-        result = await keycloak_client.validate_token(
-            token=request.token,
-            client_config=client_config
-        )
-        logger.info(
-            f"✅ Token validated successfully for client {client_config.client_id}")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"❌ Token validation error for client {client_config.client_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    result = await keycloak_client.validate_token(
+        token=request.token,
+        client_config=client_config
+    )
+    
+    logger.info(f"✅ Token validated successfully for client {client_config.client_id}")
+    return result
 
 
 @router.post("/refresh")
+@handle_auth_operation("refresh_token")
 async def refresh_token(
     request: RefreshTokenRequest,
     client_config: ClientConfig = Depends(get_client_config)
@@ -279,20 +232,13 @@ async def refresh_token(
     - X-Client-Secret: Your application's client secret
     - X-Realm: Keycloak realm name
     """
-    try:
-        result = await keycloak_client.refresh_token(
-            refresh_token=request.refresh_token,
-            client_config=client_config
-        )
-        logger.info(
-            f"✅ Token refreshed successfully for client {client_config.client_id}")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"❌ Token refresh error for client {client_config.client_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    result = await keycloak_client.refresh_token(
+        refresh_token=request.refresh_token,
+        client_config=client_config
+    )
+    
+    logger.info(f"✅ Token refreshed successfully for client {client_config.client_id}")
+    return result
 
 
 @router.post("/logout")
