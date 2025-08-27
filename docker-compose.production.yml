@@ -68,8 +68,8 @@ services:
     command: start --optimized
     environment:
       # Keycloak Admin
-      KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN_USER}"
-      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KEYCLOAK_ADMIN_USER}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
       
       # Managed Database Configuration
       KC_DB: postgres

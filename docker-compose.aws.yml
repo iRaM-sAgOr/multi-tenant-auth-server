@@ -36,8 +36,8 @@ services:
     command: start-dev
     environment:
       # Keycloak Admin
-      KEYCLOAK_ADMIN: petiton_admin
-      KEYCLOAK_ADMIN_PASSWORD: usa_ai_solution2025
+      KC_BOOTSTRAP_ADMIN_USERNAME: petiton_admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: usa_ai_solution2025
       
       # Database Configuration
       KC_DB: postgres

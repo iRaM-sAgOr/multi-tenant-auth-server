@@ -60,8 +60,8 @@ The service includes robust health checking functionality to ensure reliable ope
 ##### For Local Development:
 ```bash
 docker run -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   quay.io/keycloak/keycloak:latest \
   start-dev
 ```
@@ -75,8 +75,8 @@ docker rm keycloak-dev 2>/dev/null || true
 # Step 2: Start Keycloak with proper EC2 configuration
 docker run -d --name keycloak-dev \
   -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_STRICT_HTTPS=false \
   -e KC_HTTP_ENABLED=true \
@@ -100,8 +100,8 @@ curl -f http://localhost:8080/ || echo "Keycloak not ready yet, wait longer"
 # This command often fails with "HTTPS required" - use the corrected version below instead
 docker run -d --name keycloak-ec2 \
   -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   quay.io/keycloak/keycloak:latest \
   start-dev --hostname-strict=false --http-enabled=true
 ```
@@ -116,8 +116,8 @@ docker rm keycloak-ec2 keycloak-dev 2>/dev/null || true
 docker run -d --name keycloak-ec2 \
   --restart unless-stopped \
   -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -e KC_HTTP_ENABLED=true \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_STRICT_HTTPS=false \
@@ -143,8 +143,8 @@ docker rm $(docker ps -aq --filter "name=keycloak") 2>/dev/null || true
 docker run -d --name keycloak-ec2-fixed \
   --restart unless-stopped \
   -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -e KC_HTTP_ENABLED=true \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_STRICT_HTTPS=false \
@@ -179,8 +179,8 @@ echo "Password: admin"
 docker run -d --name keycloak-ec2 \
   --restart unless-stopped \
   -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -e KC_HTTP_ENABLED=true \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HOSTNAME_STRICT_HTTPS=false \

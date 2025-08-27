@@ -23,7 +23,7 @@ from app.models.auth import (
     ResendVerificationEmailRequest
 )
 from app.dependencies import get_client_config
-from app.core.keycloak import keycloak_client, ClientConfig
+from app.core.keycloak_client import keycloak_client, ClientConfig
 from app.core.logging import get_structured_logger, log_keycloak_operation
 
 # Get structured logger

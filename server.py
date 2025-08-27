@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from app.core.config import settings
 from app.core.logging import setup_logging, get_structured_logger
-from app.core.keycloak import verify_keycloak_connectivity
+from app.core.keycloak_client import verify_keycloak_connectivity
 from app.routes.auth import router as auth_router
 from app.routes.health import router as health_router
 from app.routes.info import router as info_router

@@ -13,7 +13,7 @@ from app.models.auth import (
     SMTPTestRequest,
     GetSMTPConfigRequest
 )
-from app.core.keycloak import keycloak_client
+from app.core.keycloak_client import keycloak_client
 from app.core.logging import get_structured_logger
 
 # Get structured logger

@@ -6,7 +6,7 @@ particularly for extracting and validating client configuration from request hea
 """
 
 from fastapi import Header
-from app.core.keycloak import ClientConfig
+from app.core.keycloak_client import ClientConfig
 
 
 def get_client_config(
@@ -16,16 +16,16 @@ def get_client_config(
 ) -> ClientConfig:
     """
     Extract client configuration from request headers
-    
+
     This dependency extracts multi-tenant client configuration from request headers
     and creates a ClientConfig instance that can be used to interact with the
     appropriate Keycloak client for the requesting application.
-    
+
     Args:
         x_client_id: Client ID from X-Client-Id header
         x_client_secret: Client secret from X-Client-Secret header  
         x_realm: Keycloak realm from X-Realm header
-        
+
     Returns:
         ClientConfig: Configuration object for the requesting client
     """

@@ -182,8 +182,8 @@ class MultiTenantKeycloakClient:
         Clients are created dynamically based on incoming requests.
         """
         # Cache for Keycloak clients to avoid recreating them
-        self._openid_clients: Dict[str, KeycloakOpenID] = {}
-        self._admin_clients: Dict[str, KeycloakAdmin] = {}
+        self._openid_clients: Dict[str, Any] = {}
+        self._admin_clients: Dict[str, Any] = {}
 
         logger.info("Multi-tenant Keycloak client initialized successfully")
 
@@ -191,7 +191,7 @@ class MultiTenantKeycloakClient:
         """Generate a unique key for client caching"""
         return f"{config.server_url}:{config.realm}:{config.client_id}"
 
-    def _get_openid_client(self, config: ClientConfig) -> KeycloakOpenID:
+    def _get_openid_client(self, config: ClientConfig) -> Any:
         """Get or create KeycloakOpenID client for the given configuration"""
         client_key = self._get_client_key(config)
         server_url = config.server_url or settings.keycloak_server_url
@@ -208,7 +208,7 @@ class MultiTenantKeycloakClient:
 
         return self._openid_clients[client_key]
 
-    def _get_admin_client(self, config: ClientConfig, use_service_account: bool = True) -> Optional[KeycloakAdmin]:
+    def _get_admin_client(self, config: ClientConfig, use_service_account: bool = True) -> Optional[Any]:
         """Get or create KeycloakAdmin client for the given configuration"""
         client_key = self._get_client_key(config)
 
@@ -251,7 +251,7 @@ class MultiTenantKeycloakClient:
 
         return self._admin_clients.get(client_key)
 
-    def _get_master_admin_client(self, admin_username: str, admin_password: str, server_url: Optional[str] = None) -> KeycloakAdmin:
+    def _get_master_admin_client(self, admin_username: str, admin_password: str, server_url: Optional[str] = None) -> Any:
         """
         Get KeycloakAdmin client using direct admin credentials for realm/client management.
 
@@ -1890,19 +1890,26 @@ class MultiTenantKeycloakClient:
             realm_config = admin_client.get_realm(realm_name)
 
             # Update SMTP server configuration
-            realm_config["smtpServer"] = {
+            # Ensure all required fields are present and properly formatted
+            smtp_server_config = {
                 "host": smtp_config["host"],
                 "port": str(smtp_config["port"]),
                 "from": smtp_config["from_email"],
                 "fromDisplayName": smtp_config.get("from_display_name", ""),
-                "replyTo": smtp_config.get("reply_to", ""),
+                "replyTo": smtp_config.get("reply_to", smtp_config["from_email"]),
                 "starttls": str(smtp_config.get("starttls", True)).lower(),
                 "ssl": str(smtp_config.get("ssl", False)).lower(),
                 "auth": str(smtp_config.get("auth_enabled", True)).lower(),
                 "user": smtp_config.get("username", ""),
-                "password": smtp_config.get("password", ""),
-                "envelopeFrom": smtp_config.get("envelope_from", "")
+                "password": smtp_config.get("password", "")
             }
+
+            # Add envelopeFrom only if it's not empty
+            envelope_from = smtp_config.get("envelope_from", "")
+            if envelope_from:
+                smtp_server_config["envelopeFrom"] = envelope_from
+
+            realm_config["smtpServer"] = smtp_server_config
 
             # Update the realm
             admin_client.update_realm(realm_name, realm_config)
@@ -1975,7 +1982,7 @@ class MultiTenantKeycloakClient:
                 password=admin_password,
                 realm_name="master",
                 verify=True
-            )
+            ) # type: ignore
 
             # Get realm configuration
             realm_config = admin_client.get_realm(realm_name)
@@ -2068,7 +2075,6 @@ class MultiTenantKeycloakClient:
                 "username": f"smtp-test-{int(asyncio.get_event_loop().time())}",
                 "email": test_email,
                 "enabled": True,
-                "temporary": True,  # Mark as temporary
                 "emailVerified": False
             }
 

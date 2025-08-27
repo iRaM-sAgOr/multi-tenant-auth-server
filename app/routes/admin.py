@@ -20,7 +20,7 @@ from app.models.auth import (
     AssignRoleRequest,
     UserRoleRequest
 )
-from app.core.keycloak import keycloak_client
+from app.core.keycloak_client import keycloak_client
 from app.core.logging import get_structured_logger
 
 # Get structured logger
@@ -153,7 +153,8 @@ async def create_client(request: CreateClientRequest):
             "standardFlowEnabled": True,  # Authorization Code Flow
             # Direct Grant Flow (username/password)
             "directAccessGrantsEnabled": True,
-            "serviceAccountsEnabled": request.service_accounts_enabled,  # Configurable service account
+            # Configurable service account
+            "serviceAccountsEnabled": request.service_accounts_enabled,
             "authorizationServicesEnabled": False,  # No fine-grained permissions
             "fullScopeAllowed": True,
             "redirectUris": request.redirect_uris,
@@ -424,7 +425,7 @@ async def delete_realm(request: DeleteRealmRequest):
             "warning": "Realm and all its data have been permanently deleted",
             "affected_resources": [
                 "All users in the realm",
-                "All clients in the realm", 
+                "All clients in the realm",
                 "All roles and permissions",
                 "All realm configurations"
             ]
@@ -466,14 +467,15 @@ async def delete_client(request: DeleteClientRequest):
             admin_password=request.admin_password
         )
 
-        logger.warning(f"🗑️ Client '{request.client_id}' deleted from realm '{request.realm_name}'")
+        logger.warning(
+            f"🗑️ Client '{request.client_id}' deleted from realm '{request.realm_name}'")
 
         return {
             **result,
             "warning": "Client has been permanently deleted",
             "affected_resources": [
                 "Client configuration and settings",
-                "Client roles and permissions", 
+                "Client roles and permissions",
                 "Client secret (if any)",
                 "All active sessions for this client"
             ],
@@ -484,7 +486,8 @@ async def delete_client(request: DeleteClientRequest):
         }
 
     except HTTPException:
-        logger.error(f"❌ Failed to delete client '{request.client_id}' from realm '{request.realm_name}'")
+        logger.error(
+            f"❌ Failed to delete client '{request.client_id}' from realm '{request.realm_name}'")
         raise
     except Exception as e:
         logger.error(f"❌ Unexpected error during client deletion: {str(e)}")
@@ -520,11 +523,13 @@ async def create_role(request: CreateRoleRequest):
             admin_password=request.admin_password
         )
 
-        logger.info(f"✅ Role '{request.role_name}' created successfully in realm '{request.realm_name}'")
+        logger.info(
+            f"✅ Role '{request.role_name}' created successfully in realm '{request.realm_name}'")
         return result
 
     except HTTPException:
-        logger.error(f"❌ Failed to create role '{request.role_name}' in realm '{request.realm_name}'")
+        logger.error(
+            f"❌ Failed to create role '{request.role_name}' in realm '{request.realm_name}'")
         raise
     except Exception as e:
         logger.error(f"❌ Unexpected error during role creation: {str(e)}")
@@ -560,11 +565,13 @@ async def assign_user_roles(request: AssignRoleRequest):
             admin_password=request.admin_password
         )
 
-        logger.info(f"✅ Roles assigned to user '{request.username}' in realm '{request.realm_name}'")
+        logger.info(
+            f"✅ Roles assigned to user '{request.username}' in realm '{request.realm_name}'")
         return result
 
     except HTTPException:
-        logger.error(f"❌ Failed to assign roles to user '{request.username}' in realm '{request.realm_name}'")
+        logger.error(
+            f"❌ Failed to assign roles to user '{request.username}' in realm '{request.realm_name}'")
         raise
     except Exception as e:
         logger.error(f"❌ Unexpected error during role assignment: {str(e)}")
@@ -598,11 +605,13 @@ async def get_user_roles(request: UserRoleRequest):
             admin_password=request.admin_password
         )
 
-        logger.info(f"✅ Retrieved roles for user '{request.username}' in realm '{request.realm_name}'")
+        logger.info(
+            f"✅ Retrieved roles for user '{request.username}' in realm '{request.realm_name}'")
         return result
 
     except HTTPException:
-        logger.error(f"❌ Failed to get roles for user '{request.username}' in realm '{request.realm_name}'")
+        logger.error(
+            f"❌ Failed to get roles for user '{request.username}' in realm '{request.realm_name}'")
         raise
     except Exception as e:
         logger.error(f"❌ Unexpected error during role retrieval: {str(e)}")
