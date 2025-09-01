@@ -86,7 +86,7 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
       
       # CORS Settings
-      CORS_ORIGINS: '["http://localhost:3000", "http://localhost:8000"]'
+      CORS_ORIGINS: '["http://localhost:3000", "http://localhost:8000", "*"]'
       CORS_ALLOW_CREDENTIALS: "true"
       
       # Logging
